@@ -35,6 +35,12 @@ jobs:
 
     - name: Build APK
       run: |
+        # 双重保障：接受 Android SDK 许可证
+        # 方案1: buildozer.spec 中 android.accept_sdk_license = True（[app] 节）
+        # 方案2: 显式创建许可证文件作为后备
+        SDK_LICENSE_HASH=24333f8a63b6825ea9c5514f83c2829b004d1fee
+        mkdir -p "$HOME/.android/licenses"
+        echo -e "\n$SDK_LICENSE_HASH" > "$HOME/.android/licenses/android-sdk-license"
         buildozer -v android debug 2>&1 | tee build.log
 
     - name: Upload APK
