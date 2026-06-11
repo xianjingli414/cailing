@@ -53,7 +53,7 @@ jobs:
       if: always()
       with:
         name: cailing-apk
-        path: bin/*.apk
+        path: bin/
         retention-days: 30
         if-no-files-found: warn
 
