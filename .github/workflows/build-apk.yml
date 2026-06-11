@@ -34,6 +34,9 @@ jobs:
 
     - name: Build APK
       run: |
+        # Clear cached SDK (may be corrupted from previous runs)
+        rm -rf "$HOME/.buildozer/android/platform/android-sdk"*
+        rm -rf "$HOME/.buildozer/android/platform/android-ndk"*
         # Pre-create license files in all possible SDK locations
         HASH=24333f8a63b6825ea9c5514f83c2829b004d1fee
         for D in "$HOME/.android" "$HOME/.buildozer/android/platform/android-sdk"; do
