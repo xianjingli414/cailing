@@ -34,15 +34,18 @@ jobs:
 
     - name: Build APK
       run: |
-        # 双重保障：接受 Android SDK 许可证
-        SDK_LICENSE_HASH=24333f8a63b6825ea9c5514f83c2829b004d1fee
-        mkdir -p "$HOME/.android/licenses"
-        echo -e "\n$SDK_LICENSE_HASH" > "$HOME/.android/licenses/android-sdk-license"
-        buildozer -v android debug 2>&1 | tee build.log
-        echo "=== bin/ 目录内容 ==="
-        ls -la bin/ || echo "bin/ 目录不存在！"
-        echo "=== 当前目录 ==="
-        ls -la
+        # Pre-create license files in all possible SDK locations
+        HASH=24333f8a63b6825ea9c5514f83c2829b004d1fee
+        for D in "$HOME/.android" "$HOME/.buildozer/android/platform/android-sdk"; do
+          mkdir -p "$D/licenses"
+          printf "\n%s\n" "$HASH" > "$D/licenses/android-sdk-license"
+        done
+        # Use yes pipe to auto-accept any remaining prompts
+        yes | buildozer -v android debug 2>&1 | tee build.log
+        RC=${PIPESTATUS[1]}
+        echo "=== Buildozer exit: $RC ==="
+        ls -laR bin/ || echo "bin/ not found"
+        exit $RC
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
