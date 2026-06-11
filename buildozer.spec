@@ -15,6 +15,9 @@ orientation = portrait
 fullscreen = 0
 allow_screenshots = 1
 
+# 自动接受 Android SDK 许可证（CI 自动化必需，必须在 [app] 节）
+android.accept_sdk_license = True
+
 [android]
 # ── WiFi / 位置权限（Android 10+ 扫描 WiFi 必须）──
 android.permissions = ACCESS_FINE_LOCATION, ACCESS_COARSE_LOCATION, ACCESS_WIFI_STATE, CHANGE_WIFI_STATE, ACCESS_NETWORK_STATE, INTERNET
@@ -33,9 +36,6 @@ android.version_code = 1
 
 # 启用 AndroidX + Material Components
 android.gradle_dependencies = androidx.appcompat:appcompat:1.6.1,com.google.android.material:material:1.9.0
-
-# 自动接受 Android SDK 许可证（CI 自动化必需）
-android.accept_sdk_license = True
 
 # 日志级别
 android.logcat_filters = *:S python:D
