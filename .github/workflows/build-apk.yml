@@ -32,21 +32,15 @@ jobs:
           zlib1g-dev libncurses-dev \
           cmake libffi-dev libssl-dev
 
+    - name: Clean cache
+      run: |
+        rm -rf ~/.buildozer ~/.android
+
     - name: Build APK
       run: |
-        # Clear cached SDK (may be corrupted from previous runs)
-        rm -rf "$HOME/.buildozer/android/platform/android-sdk"*
-        rm -rf "$HOME/.buildozer/android/platform/android-ndk"*
-        # Pre-create license files in all possible SDK locations
-        HASH=24333f8a63b6825ea9c5514f83c2829b004d1fee
-        for D in "$HOME/.android" "$HOME/.buildozer/android/platform/android-sdk"; do
-          mkdir -p "$D/licenses"
-          printf "\n%s\n" "$HASH" > "$D/licenses/android-sdk-license"
-        done
-        # Use yes pipe to auto-accept any remaining prompts
         yes | buildozer -v android debug 2>&1 | tee build.log
         RC=${PIPESTATUS[1]}
-        echo "=== Buildozer exit: $RC ==="
+        echo "Buildozer exit code: $RC"
         ls -laR bin/ || echo "bin/ not found"
         exit $RC
 
