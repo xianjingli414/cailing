@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>采灵 - WiFi 采集管理</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  :root {
+    --primary: #1677ff; --primary-light: #e8f0fe;
+    --success: #52c41a; --warning: #faad14; --danger: #ff4d4f;
+    --bg: #f5f5f5; --card: #fff; --text: #1a1a1a; --text2: #666; --text3: #999;
+    --border: #e8e8e8; --radius: 12px; --bar-h: 56px; --status-h: 44px;
+  }
+  html, body { margin:0; padding:0; height:100%; height:100dvh; font-family: -apple-system,'PingFang SC','Helvetica Neue',sans-serif; background:var(--bg); color:var(--text); overflow:hidden; }
+  .status-bar { height:var(--status-h); background:#fff; display:flex; align-items:center; justify-content:space-between; padding:0 20px; font-size:13px; font-weight:500; position:relative; z-index:100; padding-top:env(safe-area-inset-top,0px); }
+  .status-bar .time { font-size:15px; font-weight:600; }
+  .user-badge { display:flex; align-items:center; gap:6px; cursor:pointer; font-size:13px; color:var(--text2); border:none; background:none; padding:4px 8px; border-radius:14px; }
+  .user-badge.admin { color:var(--primary); background:var(--primary-light); font-weight:500; }
+  .user-avatar { width:26px; height:26px; border-radius:50%; background:#e0e0e0; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:600; color:var(--text2); flex-shrink:0; }
+  .user-badge.admin .user-avatar { background:var(--primary); color:#fff; }
+  .app { height:calc(100dvh - var(--status-h) - env(safe-area-inset-top,0px)); display:flex; flex-direction:column; }
+  .pages { flex:1; overflow:hidden; position:relative; }
+  .page { position:absolute; inset:0; overflow-y:auto; -webkit-overflow-scrolling:touch; display:none; background:var(--bg); }
+  /* Android bottom nav fix: ensure last card doesn't hide behind nav bar */
+  .page > .card-last, .page > div:last-child { margin-bottom:12px; }
+  .page.active { display:block; }
+  .nav { height:calc(var(--bar-h) + env(safe-area-inset-bottom,0px)); background:#fff; border-top:1px solid var(--border); display:flex; align-items:stretch; position:relative; z-index:100; flex-shrink:0; padding-bottom:env(safe-area-inset-bottom,0px); }
+  .nav-item { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; cursor:pointer; transition:color .15s; color:var(--text3); font-size:11px; border:none; background:none; padding:0; }
+  .nav-item.active { color:var(--primary); }
+  .nav-item svg { width:22px; height:22px; }
+  .nav-item.nav-hidden { display:none; }
+  .page-header { background:#fff; padding:16px; border-bottom:1px solid var(--border); position:sticky; top:0; z-index:50; display:flex; align-items:center; gap:10px; }
+  .page-title { font-size:18px; font-weight:600; margin:0; flex:1; }
+  .page-subtitle { font-size:13px; color:var(--text2); margin:4px 0 0; }
+  .card { background:var(--card); border-radius:var(--radius); margin:12px 12px 0; overflow:hidden; box-shadow:0 1px 4px rgba(0,0,0,.06); }
+  .card-last { margin-bottom:12px; }
+  .btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; border:none; border-radius:8px; font-size:15px; font-weight:500; cursor:pointer; padding:12px 20px; transition:opacity .15s,background .15s; }
+  .btn:active { opacity:.75; }
+  .btn-primary { background:var(--primary); color:#fff; }
+  .btn-success { background:var(--success); color:#fff; }
+  .btn-danger { background:var(--danger); color:#fff; }
+  .btn-outline { background:transparent; color:var(--primary); border:1px solid var(--primary); }
+  .btn-ghost { background:#f0f0f0; color:var(--text); }
+  .btn-sm { font-size:13px; padding:7px 14px; border-radius:6px; }
+  .btn-xs { font-size:12px; padding:5px 10px; border-radius:5px; }
+  .btn-block { width:100%; }
+  .tag { display:inline-flex; align-items:center; padding:2px 8px; border-radius:4px; font-size:12px; font-weight:500; }
+  .tag-blue { background:#e8f0fe; color:#1677ff; }
+  .tag-green { background:#f6ffed; color:#52c41a; }
+  .tag-orange { background:#fff7e6; color:#fa8c16; }
+  .tag-red { background:#fff2f0; color:#ff4d4f; }
+  .tag-gray { background:#f5f5f5; color:#8c8c8c; }
+  .signal-bar { display:flex; align-items:flex-end; gap:2px; height:16px; }
+  .signal-bar span { display:block; width:3px; background:#d9d9d9; border-radius:1px; }
+  .signal-bar span.on { background:var(--primary); }
+  .scan-hero { background:linear-gradient(135deg,#1677ff 0%,#0958d9 100%); padding:28px 20px 22px; text-align:center; color:#fff; }
+  .scan-ring { width:110px; height:110px; border-radius:50%; background:rgba(255,255,255,.12); margin:0 auto 16px; display:flex; align-items:center; justify-content:center; position:relative; cursor:pointer; }
+  .scan-ring::before { content:''; position:absolute; inset:-8px; border-radius:50%; border:2px solid rgba(255,255,255,.25); }
+  .scan-ring::after { content:''; position:absolute; inset:-16px; border-radius:50%; border:2px solid rgba(255,255,255,.12); }
+  .scan-ring svg { width:48px; height:48px; fill:#fff; }
+  .scan-hero h2 { margin:0 0 4px; font-size:19px; }
+  .scan-hero p { margin:0; font-size:13px; opacity:.8; }
+  @keyframes scanRing { to { transform:rotate(360deg); } }
+  .scan-spinner { display:none; position:absolute; inset:-6px; border-radius:50%; border:3px solid transparent; border-top-color:rgba(255,255,255,.7); animation:scanRing .8s linear infinite; }
+  .scanning .scan-spinner { display:block; }
+  .progress-bar-wrap { height:3px; background:rgba(255,255,255,.25); border-radius:2px; overflow:hidden; margin-top:10px; }
+  .progress-bar { height:100%; background:#fff; border-radius:2px; transition:width .4s ease; }
+  .stats-strip { display:grid; grid-template-columns:repeat(3,1fr); background:#fff; border-radius:var(--radius); margin:10px 12px; overflow:hidden; box-shadow:0 1px 4px rgba(0,0,0,.06); }
+  .stat-item { padding:12px 10px; text-align:center; border-right:1px solid var(--border); }
+  .stat-item:last-child { border-right:none; }
+  .stat-num { font-size:20px; font-weight:700; color:var(--primary); }
+  .stat-label { font-size:11px; color:var(--text2); margin-top:2px; }
+  .filter-row { display:flex; gap:8px; padding:0 12px 8px; overflow-x:auto; scrollbar-width:none; }
+  .filter-row::-webkit-scrollbar { display:none; }
+  .filter-chip { flex-shrink:0; padding:5px 12px; border-radius:16px; border:1px solid var(--border); font-size:13px; cursor:pointer; background:#fff; color:var(--text2); white-space:nowrap; }
+  .filter-chip.active { border-color:var(--primary); background:var(--primary-light); color:var(--primary); }
+  .wifi-item { display:flex; align-items:center; padding:11px 14px; border-bottom:1px solid var(--border); gap:10px; transition:background .1s; }
+  .wifi-item:last-child { border-bottom:none; }
+  .wifi-item:active { background:#f8f8f8; }
+  .wifi-cb { width:22px; height:22px; flex-shrink:0; display:flex; align-items:center; justify-content:center; }
+  .wifi-cb-inner { width:20px; height:20px; border-radius:50%; border:1.5px solid #c0c0c0; background:#fff; display:flex; align-items:center; justify-content:center; transition:all .15s; }
+  .wifi-item.checked .wifi-cb-inner { border-color:var(--primary); background:var(--primary); }
+  .wifi-item.checked .wifi-cb-inner::after { content:''; width:5px; height:9px; border:2px solid #fff; border-top:none; border-left:none; transform:rotate(45deg) translate(-1px,-1px); display:block; }
+  .wifi-item.checked { background:#f0f6ff; }
+  .wifi-icon { width:38px; height:38px; background:var(--primary-light); border-radius:10px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .wifi-icon svg { width:20px; height:20px; fill:var(--primary); }
+  .wifi-body { flex:1; min-width:0; cursor:pointer; }
+  .wifi-ssid { font-size:14px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .wifi-meta { font-size:11px; color:var(--text2); margin-top:1px; }
+  .wifi-tags { display:flex; flex-wrap:wrap; gap:4px; margin-top:4px; }
+  .wifi-right { text-align:right; flex-shrink:0; }
+  .batch-bar { position:fixed; bottom:calc(var(--bar-h) + env(safe-area-inset-bottom,0px)); left:0; right:0; background:#fff; border-top:1px solid var(--border); padding:10px 12px; display:none; gap:8px; z-index:150; align-items:center; box-shadow:0 -2px 8px rgba(0,0,0,.06); }
+  .batch-bar.visible { display:flex; }
+  .batch-info { flex:1; font-size:13px; }
+  .batch-info .cnt { font-size:18px; font-weight:700; color:var(--primary); }
+  .batch-info .lbl { color:var(--text2); }
+  .search-wrap { padding:8px 12px; background:var(--bg); position:sticky; z-index:40; }
+  .search-inner { position:relative; }
+  .search-input { width:100%; padding:9px 14px 9px 36px; border:1px solid var(--border); border-radius:20px; background:#fff; font-size:14px; outline:none; color:var(--text); }
+  .search-icon { position:absolute; left:11px; top:50%; transform:translateY(-50%); width:15px; height:15px; fill:var(--text3); pointer-events:none; }
+  .fab { position:fixed; right:20px; bottom:calc(var(--bar-h) + env(safe-area-inset-bottom,0px) + 16px); width:52px; height:52px; background:var(--primary); border-radius:50%; display:flex; align-items:center; justify-content:center; box-shadow:0 4px 12px rgba(22,119,255,.4); cursor:pointer; z-index:200; border:none; }
+  .fab svg { width:24px; height:24px; fill:#fff; }
+  .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:300; display:none; align-items:flex-end; }
+  .modal-overlay.open { display:flex; }
+  .modal { background:#fff; border-radius:20px 20px 0 0; padding:20px 16px 32px; width:100%; max-height:85vh; overflow-y:auto; }
+  .modal-center { align-items:center; }
+  .modal-center .modal { border-radius:16px; max-width:380px; margin:auto; max-height:90vh; }
+  .modal-handle { width:36px; height:4px; background:#d9d9d9; border-radius:2px; margin:0 auto 20px; }
+  .modal-title { font-size:17px; font-weight:600; margin:0 0 4px; }
+  .modal-subtitle { font-size:13px; color:var(--text2); margin:0 0 16px; }
+  .form-item { margin-bottom:14px; }
+  .form-label { font-size:13px; color:var(--text2); margin-bottom:5px; }
+  .form-input { width:100%; padding:11px 14px; border:1px solid var(--border); border-radius:8px; font-size:15px; outline:none; color:var(--text); background:#fff; }
+  .form-input:focus { border-color:var(--primary); }
+  .form-actions { display:flex; gap:10px; margin-top:20px; }
+  .form-actions .btn { flex:1; }
+  .detail-row { display:flex; padding:12px 16px; border-bottom:1px solid var(--border); }
+  .detail-row:last-child { border-bottom:none; }
+  .detail-label { width:80px; font-size:13px; color:var(--text2); flex-shrink:0; }
+  .detail-value { flex:1; font-size:13px; word-break:break-all; }
+  .unit-item { display:flex; align-items:center; padding:14px 16px; border-bottom:1px solid var(--border); gap:12px; }
+  .unit-item:last-child { border-bottom:none; }
+  .unit-avatar { width:40px; height:40px; background:#fff7e6; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:16px; font-weight:700; color:#fa8c16; flex-shrink:0; }
+  .unit-body { flex:1; min-width:0; }
+  .unit-name { font-size:15px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .unit-code { font-size:12px; color:var(--text2); margin-top:2px; font-family:monospace; }
+  .unit-addr { font-size:12px; color:var(--text3); margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .unit-right { display:flex; gap:8px; flex-shrink:0; }
+  .export-bar { background:#fff; border-bottom:1px solid var(--border); padding:8px 16px; display:flex; gap:8px; align-items:center; position:sticky; z-index:45; }
+  .export-count { flex:1; font-size:13px; color:var(--text2); }
+  .empty { text-align:center; padding:52px 20px; color:var(--text3); }
+  .empty svg { width:56px; height:56px; fill:#d9d9d9; margin-bottom:12px; }
+  .empty p { margin:0; font-size:14px; }
+  .toast { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%) scale(.95); background:rgba(0,0,0,.75); color:#fff; padding:12px 20px; border-radius:8px; font-size:14px; z-index:999; opacity:0; pointer-events:none; transition:opacity .2s,transform .2s; white-space:nowrap; }
+  .toast.show { opacity:1; transform:translate(-50%,-50%) scale(1); }
+  .unit-opt { display:flex; align-items:center; padding:13px 0; border-bottom:1px solid var(--border); gap:12px; cursor:pointer; }
+  .unit-opt:last-child { border-bottom:none; }
+  .unit-opt:active { opacity:.7; }
+  .unit-opt-avatar { width:36px; height:36px; background:#fff7e6; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:700; color:#fa8c16; flex-shrink:0; }
+  .unit-opt-body { flex:1; min-width:0; }
+  .unit-opt-name { font-size:14px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .unit-opt-code { font-size:12px; color:var(--text3); font-family:monospace; }
+  .login-card { background:#fff; border-radius:var(--radius); margin:30px 12px; padding:24px 20px; box-shadow:0 2px 8px rgba(0,0,0,.08); }
+  .login-title { font-size:22px; font-weight:700; text-align:center; margin:0 0 6px; }
+  .login-sub { font-size:13px; color:var(--text2); text-align:center; margin:0 0 24px; }
+  .perm-item { display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid var(--border); }
+  .perm-item:last-child { border-bottom:none; }
+  .perm-label { font-size:15px; font-weight:500; }
+  .perm-desc { font-size:12px; color:var(--text3); margin-top:2px; }
+  .toggle-sw { width:48px; height:28px; background:#d9d9d9; border-radius:14px; cursor:pointer; position:relative; transition:background .2s; border:none; padding:0; flex-shrink:0; }
+  .toggle-sw.on { background:var(--primary); }
+  .toggle-sw::after { content:''; position:absolute; top:2px; left:2px; width:24px; height:24px; background:#fff; border-radius:50%; transition:left .2s; box-shadow:0 1px 3px rgba(0,0,0,.2); }
+  .toggle-sw.on::after { left:22px; }
+  .pb-safe { padding-bottom:env(safe-area-inset-bottom,0px); }
+  .section-title { font-size:15px; font-weight:600; padding:16px 16px 8px; color:var(--text2); }
+  .perm-group { padding:0 16px; }
+  .perm-group .perm-item { padding:12px 0; }
+  .perm-group .perm-item .perm-label { font-size:14px; }
+  .perm-section-label { font-size:12px; font-weight:600; color:var(--primary); text-transform:uppercase; margin-bottom:4px; }
+  .user-list-item { display:flex; align-items:center; padding:14px 16px; border-bottom:1px solid var(--border); gap:12px; }
+  .user-list-item:last-child { border-bottom:none; }
+  .perm-chip { display:inline-flex; padding:2px 7px; background:#e8f0fe; color:var(--primary); border-radius:4px; font-size:11px; margin:1px; }
+  .perm-chip.off { background:#f5f5f5; color:var(--text3); text-decoration:line-through; }
+</style>
+</head>
+<body>
+
+<div class="status-bar">
+  <span class="time" id="clock">15:30</span>
+  <button class="user-badge" id="userBadge" onclick="switchPage('mine')">
+    <div class="user-avatar" id="userAvatar">客</div>
+    <span id="userLabel">游客</span>
+  </button>
+</div>
+
+<div class="app"><div class="pages">
+
+<!-- ══════════════ SCAN ══════════════ -->
+<div class="page active" id="page-scan">
+  <div class="scan-hero">
+    <div class="scan-ring" id="scanRing" onclick="startScan()"><div class="scan-spinner"></div>
+      <svg viewBox="0 0 24 24"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="#fff"/></svg>
+    </div>
+    <h2 id="scanTitle">点击扫描 WiFi</h2>
+    <p id="scanDesc">发现周围所有无线接入点</p>
+    <div class="progress-bar-wrap" id="progressWrap" style="display:none"><div class="progress-bar" id="progressBar" style="width:0%"></div></div>
+  </div>
+  <div class="stats-strip">
+    <div class="stat-item"><div class="stat-num" id="statTotal">0</div><div class="stat-label">总记录</div></div>
+    <div class="stat-item"><div class="stat-num" id="statToday">0</div><div class="stat-label">今日采集</div></div>
+    <div class="stat-item"><div class="stat-num" id="statUnit">0</div><div class="stat-label">关联单位</div></div>
+  </div>
+  <div class="filter-row" id="filterRow">
+    <div class="filter-chip active" onclick="setScanFilter('all',this)">全部</div>
+    <div class="filter-chip" onclick="setScanFilter('2.4G',this)">2.4G</div>
+    <div class="filter-chip" onclick="setScanFilter('5G',this)">5G</div>
+    <div class="filter-chip" onclick="setScanFilter('open',this)">开放网络</div>
+    <div class="filter-chip" onclick="setScanFilter('saved',this)">已保存</div>
+  </div>
+  <div class="card card-last" id="wifiListCard">
+    <div class="empty" id="wifiEmpty"><svg viewBox="0 0 24 24"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1"/></svg><p>点击上方圆圈扫描周围 WiFi</p></div>
+    <div id="wifiList"></div>
+  </div>
+</div>
+
+<!-- ══════════════ RECORDS ══════════════ -->
+<div class="page" id="page-records">
+  <div class="page-header"><div><p class="page-title">记录</p><p class="page-subtitle" id="recordsSubtitle">共 0 条记录</p></div></div>
+  <div class="search-wrap" style="top:89px"><div class="search-inner"><svg class="search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input class="search-input" id="recordSearch" placeholder="搜索 SSID 或 BSSID..." oninput="renderRecords()"></div></div>
+  <div class="filter-row" style="padding-top:4px" id="recordFilterRow">
+    <div class="filter-chip active" onclick="setRecordFilter('all',this)">全部</div>
+    <div class="filter-chip" onclick="setRecordFilter('2.4G',this)">2.4G</div>
+    <div class="filter-chip" onclick="setRecordFilter('5G',this)">5G</div>
+    <div class="filter-chip" onclick="setRecordFilter('bound',this)">已绑单位</div>
+    <div class="filter-chip" onclick="setRecordFilter('unbound',this)">未绑单位</div>
+    <div class="filter-chip" onclick="setRecordFilter('exported',this)">已导出</div>
+    <div class="filter-chip" onclick="setRecordFilter('unexported',this)">未导出</div>
+  </div>
+  <div class="export-bar" id="recordExportBar">
+    <span class="export-count" id="exportCountLabel">可选择记录后导出</span>
+    <button class="btn btn-sm btn-outline" onclick="toggleRecordSelectAll()">全选</button>
+    <button class="btn btn-sm btn-primary" onclick="exportSelectedRecords()"><svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:none;stroke:#fff;stroke-width:2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>导出所选</button>
+  </div>
+  <div class="card card-last" id="recordList"><div class="empty"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg><p>暂无记录，去扫描后保存</p></div></div>
+</div>
+
+<!-- ══════════════ UNITS ══════════════ -->
+<div class="page" id="page-units">
+  <div class="page-header"><div><p class="page-title">单位管理</p><p class="page-subtitle" id="unitsSubtitle">共 0 个单位</p></div><button class="btn btn-sm btn-outline" id="unitImportBtn" onclick="triggerUnitImport()" style="display:none">导入</button></div>
+  <div class="search-wrap" style="top:89px"><div class="search-inner"><svg class="search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input class="search-input" id="unitSearch" placeholder="搜索单位名称..." oninput="renderUnits()"></div></div>
+  <div class="card card-last" id="unitList" style="margin-top:8px"><div class="empty"><svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg><p>暂无单位数据</p></div></div>
+  <button class="fab" id="unitFab" onclick="showAddUnit()"><svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+  <input type="file" id="unitFileInput" accept=".csv" onchange="importUnitsCSV(event)" style="display:none">
+</div>
+
+<!-- ══════════════ MINE ══════════════ -->
+<div class="page" id="page-mine">
+  <div class="page-header"><div><p class="page-title">我的</p><p class="page-subtitle" id="mineSubtitle">登录后可管理权限</p></div></div>
+
+  <div class="login-card" id="loginPanel">
+    <div class="login-title">账号登录</div>
+    <div class="login-sub">管理员可添加用户并分配操作权限</div>
+    <div class="form-item"><div class="form-label">账号</div><input class="form-input" id="loginUser" placeholder="请输入账号"></div>
+    <div class="form-item"><div class="form-label">密码</div><input class="form-input" id="loginPass" type="password" placeholder="请输入密码"></div>
+    <div class="form-actions"><button class="btn btn-ghost" onclick="skipLogin()">游客模式</button><button class="btn btn-primary" onclick="doLogin()">登录</button></div>
+    <p style="text-align:center;font-size:12px;color:var(--text3);margin:12px 0 0">管理员演示：admin / admin123</p>
+  </div>
+
+  <div id="loggedInPanel" style="display:none">
+    <!-- user info -->
+    <div class="card" style="display:flex;align-items:center;padding:14px 16px;gap:12px">
+      <div class="user-avatar" style="width:44px;height:44px;font-size:18px;background:var(--primary);color:#fff" id="permAvatar">A</div>
+      <div style="flex:1"><div style="font-size:16px;font-weight:600" id="permName">管理员</div><div style="font-size:12px;color:var(--text3)" id="permRole">管理员</div></div>
+      <button class="btn btn-sm btn-outline" onclick="showPwdChange()" style="margin-right:0">修改密码</button>
+      <button class="btn btn-sm btn-ghost" onclick="doLogout()">退出登录</button>
+    </div>
+
+    <!-- module coarse toggles (admin only) -->
+    <div class="card" id="moduleToggleCard" style="display:none">
+      <div class="section-title">模块可见性（游客/普通用户）</div>
+      <div id="moduleToggles"></div>
+    </div>
+
+    <!-- granular permissions display (regular user) -->
+    <div class="card" id="myPermsCard" style="display:none">
+      <div class="section-title">当前权限</div>
+      <div id="myPermsList"></div>
+    </div>
+
+    <!-- user management (admin only) -->
+    <div class="card" id="userMgmtCard" style="display:none">
+      <div class="section-title">用户管理</div>
+      <div id="userList"></div>
+      <button class="btn btn-primary btn-sm" style="margin:10px 16px 16px;width:calc(100% - 32px)" onclick="showAddUser()">+ 添加用户</button>
+    </div>
+  </div>
+</div>
+
+</div><!-- /pages -->
+
+<nav class="nav pb-safe">
+  <button class="nav-item active" id="nav-scan" onclick="switchPage('scan')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="currentColor"/></svg>扫描</button>
+  <button class="nav-item" id="nav-records" onclick="switchPage('records')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>记录</button>
+  <button class="nav-item" id="nav-units" onclick="switchPage('units')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg>单位</button>
+  <button class="nav-item" id="nav-mine" onclick="switchPage('mine')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-7 8-7s8 3 8 7"/></svg>我的</button>
+</nav>
+</div>
+
+<!-- ════════════ BATCH BAR ════════════ -->
+<div class="batch-bar" id="batchBar">
+  <div class="batch-info">已选 <span class="cnt" id="batchCount">0</span> <span class="lbl">条 WiFi</span></div>
+  <button class="btn btn-ghost btn-sm" id="batchSaveBtn" onclick="batchSave()">保存</button>
+  <button class="btn btn-primary btn-sm" id="batchBindBtn" onclick="batchBind()">绑定单位</button>
+</div>
+
+<!-- ════════════ MODALS ════════════ -->
+
+<!-- WiFi 详情 -->
+<div class="modal-overlay" id="wifiDetailModal" onclick="closeModal('wifiDetailModal')">
+  <div class="modal" onclick="event.stopPropagation()"><div class="modal-handle"></div>
+    <h3 class="modal-title" id="detailTitle">WiFi 详情</h3>
+    <div style="background:#f8f8f8;border-radius:10px;margin-bottom:16px;overflow:hidden"><div id="detailContent"></div></div>
+    <div style="display:flex;gap:10px"><button class="btn btn-ghost" style="flex:1" onclick="closeModal('wifiDetailModal')">关闭</button><button class="btn btn-primary" style="flex:2" id="detailSaveBtn" onclick="saveCurrentWifi()">保存到记录库</button></div>
+  </div>
+</div>
+
+<!-- 绑定单位 -->
+<div class="modal-overlay" id="bindUnitModal" onclick="closeModal('bindUnitModal')">
+  <div class="modal" onclick="event.stopPropagation()"><div class="modal-handle"></div>
+    <h3 class="modal-title" id="bindTitle">绑定单位</h3>
+    <p class="modal-subtitle" id="bindSubtitle">选择关联的单位</p>
+    <div style="position:sticky;top:0;background:#fff;padding-bottom:8px;z-index:1">
+      <div style="position:relative">
+        <svg viewBox="0 0 24 24" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);width:14px;height:14px;fill:var(--text3);pointer-events:none"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65" stroke="var(--text3)" stroke-width="2" fill="none"/></svg>
+        <input id="bindUnitSearch" class="form-input" style="padding-left:32px;font-size:14px" placeholder="搜索单位名称或信用代码..." oninput="renderBindUnitList(this.value.trim())">
+      </div>
+    </div>
+    <div id="bindUnitList" style="max-height:45vh;overflow-y:auto;margin-top:8px"></div>
+    <button class="btn btn-ghost btn-block" style="margin-top:12px" onclick="closeModal('bindUnitModal')">取消</button>
+  </div>
+</div>
+
+<!-- 添加/编辑单位 -->
+<div class="modal-overlay" id="addUnitModal" onclick="closeModal('addUnitModal')">
+  <div class="modal" onclick="event.stopPropagation()"><div class="modal-handle"></div>
+    <h3 class="modal-title" id="unitModalTitle">添加单位</h3>
+    <div class="form-item"><div class="form-label">单位名称 *</div><input class="form-input" id="unitName" placeholder="请输入单位全称"></div>
+    <div class="form-item"><div class="form-label">统一社会信用代码 *</div><input class="form-input" id="unitCode" placeholder="18位信用代码" maxlength="18" style="font-family:monospace"></div>
+    <div class="form-item"><div class="form-label">地址 *</div><input class="form-input" id="unitAddr" placeholder="详细地址"></div>
+    <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal('addUnitModal')">取消</button><button class="btn btn-primary" onclick="submitUnit()">保存</button></div>
+  </div>
+</div>
+
+<!-- 添加用户 -->
+<div class="modal-overlay" id="addUserModal" onclick="closeModal('addUserModal')">
+  <div class="modal" onclick="event.stopPropagation()"><div class="modal-handle"></div>
+    <h3 class="modal-title" id="addUserTitle">添加用户</h3>
+    <div class="form-item"><div class="form-label">显示名称 *</div><input class="form-input" id="newUserDisplay" placeholder="例如：张三"></div>
+    <div class="form-item"><div class="form-label">登录账号 *</div><input class="form-input" id="newUserName" placeholder="英文账号"></div>
+    <div class="form-item"><div class="form-label">登录密码 *</div><input class="form-input" id="newUserPass" type="password" placeholder="至少4位"></div>
+    <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal('addUserModal')">取消</button><button class="btn btn-primary" onclick="submitAddUser()">创建</button></div>
+  </div>
+</div>
+
+<!-- 编辑用户权限 -->
+<div class="modal-overlay" id="editPermModal" onclick="closeModal('editPermModal')">
+  <div class="modal" onclick="event.stopPropagation()"><div class="modal-handle"></div>
+    <h3 class="modal-title" id="editPermTitle">编辑权限</h3>
+    <p class="modal-subtitle" id="editPermName"></p>
+    <div id="editPermGroups" style="max-height:50vh;overflow-y:auto"></div>
+    <div class="form-actions"><button class="btn btn-ghost" style="flex:1" onclick="closeModal('editPermModal')">取消</button><button class="btn btn-primary" style="flex:2" onclick="saveUserPerms()">保存权限</button></div>
+  </div>
+</div>
+
+<!-- 密码过期提醒 -->
+<div class="modal-overlay modal-center" id="pwdExpireModal" style="align-items:center">
+  <div class="modal" onclick="event.stopPropagation()" style="border-radius:16px;max-width:380px;margin:auto">
+    <div style="text-align:center;margin-bottom:16px">
+      <div style="width:56px;height:56px;background:#fff7e6;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;margin-bottom:12px">
+        <svg viewBox="0 0 24 24" style="width:28px;height:28px;fill:var(--warning)"><path d="M12 2L1 21h22L12 2zm0 4.5L19.5 19h-15L12 6.5z"/><circle cx="12" cy="16" r="1.5" fill="var(--warning)"/><rect x="11" y="9" width="2" height="5" fill="var(--warning)"/></svg>
+      </div>
+      <h3 class="modal-title">密码安全提醒</h3>
+      <p class="modal-subtitle" id="pwdExpireMsg">您的密码已超过3个月未更改，建议及时修改以保证账户安全。</p>
+    </div>
+    <div class="form-actions"><button class="btn btn-ghost" onclick="skipPwdChange()" style="flex:1">暂不修改</button><button class="btn btn-primary" onclick="goToPwdChange()" style="flex:2">立即修改密码</button></div>
+  </div>
+</div>
+
+<!-- 修改密码 -->
+<div class="modal-overlay modal-center" id="pwdChangeModal">
+  <div class="modal" onclick="event.stopPropagation()" style="max-width:380px;margin:auto">
+    <h3 class="modal-title">修改密码</h3>
+    <p class="modal-subtitle" id="pwdChangeUser"></p>
+    <div class="form-item"><div class="form-label">当前密码 *</div><input class="form-input" id="oldPwd" type="password" placeholder="请输入当前密码"></div>
+    <div class="form-item"><div class="form-label">新密码 *</div><input class="form-input" id="newPwd" type="password" placeholder="至少4位"></div>
+    <div class="form-item"><div class="form-label">确认新密码 *</div><input class="form-input" id="confirmPwd" type="password" placeholder="再次输入新密码"></div>
+    <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal('pwdChangeModal')" style="flex:1">取消</button><button class="btn btn-primary" onclick="submitPwdChange()" style="flex:2">确认修改</button></div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ══════════════════════ DATA MODEL ══════════════════════
+const DB = {
+  wifiRecords: JSON.parse(localStorage.getItem('wifiRecords') || '[]'),
+  units: JSON.parse(localStorage.getItem('units') || '[]'),
+  _nextWifiId: parseInt(localStorage.getItem('_nextWifiId') || '1'),
+  _nextUnitId: parseInt(localStorage.getItem('_nextUnitId') || '1'),
+  currentUser: JSON.parse(localStorage.getItem('currentUser') || 'null'),
+  // coarse module visibility (admin controls)
+  moduleVisibility: JSON.parse(localStorage.getItem('moduleVisibility') || '{"scan":true,"records":true,"units":true}'),
+
+  saveWifi() { localStorage.setItem('wifiRecords', JSON.stringify(this.wifiRecords)); localStorage.setItem('_nextWifiId', this._nextWifiId); },
+  saveUnits() { localStorage.setItem('units', JSON.stringify(this.units)); localStorage.setItem('_nextUnitId', this._nextUnitId); },
+  saveUser() { localStorage.setItem('currentUser', JSON.stringify(this.currentUser)); },
+  saveModules() { localStorage.setItem('moduleVisibility', JSON.stringify(this.moduleVisibility)); },
+
+  addWifi(r) {
+    if (this.wifiRecords.find(x => x.bssid === r.bssid)) return false;
+    r.id = this._nextWifiId++; r.collect_time = new Date().toLocaleString('zh-CN'); r.unit_id = null; r.unit_name = ''; r.exported = false;
+    this.wifiRecords.unshift(r); this.saveWifi(); return true;
+  },
+  addUnit(u) { if (this.units.find(x => x.unit_name === u.unit_name)) return false; u.id = this._nextUnitId++; u.create_time = new Date().toLocaleString('zh-CN'); this.units.unshift(u); this.saveUnits(); return true; },
+  updateUnit(id, data) { const u = this.units.find(x => x.id === id); if (u) { Object.assign(u, data); this.saveUnits(); return true; } return false; },
+  deleteUnit(id) { this.units = this.units.filter(x => x.id !== id); this.wifiRecords.forEach(r => { if (r.unit_id === id) { r.unit_id = null; r.unit_name = ''; } }); this.saveUnits(); this.saveWifi(); },
+  deleteWifi(id) { this.wifiRecords = this.wifiRecords.filter(x => x.id !== id); this.saveWifi(); },
+  bulkBindByBssid(bssids, unitId) { const u = this.units.find(x => x.id === unitId); if (!u) return 0; let cnt = 0; bssids.forEach(bssid => { const r = this.wifiRecords.find(x => x.bssid === bssid); if (r) { r.unit_id = unitId; r.unit_name = u.unit_name; cnt++; } }); if (cnt) this.saveWifi(); return cnt; }
+};
+
+// ══════════════════════ USER MANAGEMENT ══════════════════════
+// Seed: admin password_changed_at set to >3 months ago for demo
+const pwdExpiredTime = new Date(Date.now() - 100*24*3600*1000).toISOString();
+let USERS = JSON.parse(localStorage.getItem('_users') || JSON.stringify([{username:'admin',password:'admin123',role:'admin',displayName:'管理员',password_changed_at:pwdExpiredTime}]));
+// Migration: ensure all users have password_changed_at field
+let usersChanged=false;
+USERS.forEach(u=>{if(!u.password_changed_at){u.password_changed_at=new Date(Date.now()-120*24*3600*1000).toISOString();usersChanged=true;}});
+if(usersChanged) saveUsers();
+// Granular perms per user: { username: { scan_view, scan_bind, records_view, records_filter, records_export, units_view, units_add, units_edit, units_delete, units_import } }
+let USER_PERMS = JSON.parse(localStorage.getItem('_user_perms') || '{}');
+// Default perms for new regular users
+const GRANULAR_PERMS_DEFAULT = { scan_view:true, scan_bind:true, records_view:true, records_filter:true, records_export:true, records_delete:true, units_view:true, units_add:true, units_edit:true, units_delete:true, units_import:true };
+
+function saveUsers() { localStorage.setItem('_users', JSON.stringify(USERS)); }
+function savePerms() { localStorage.setItem('_user_perms', JSON.stringify(USER_PERMS)); }
+
+// Get current user's granular perms (admin = all true)
+function getPerms() {
+  if (!DB.currentUser) return {...GRANULAR_PERMS_DEFAULT}; // guest: all allowed
+  if (DB.currentUser.role === 'admin') { const all = {}; Object.keys(GRANULAR_PERMS_DEFAULT).forEach(k => all[k]=true); return all; }
+  return USER_PERMS[DB.currentUser.username] || {...GRANULAR_PERMS_DEFAULT};
+}
+function hasPerm(key) { if (isAdmin()) return true; return getPerms()[key] !== false; }
+function isAdmin() { return DB.currentUser && DB.currentUser.role === 'admin'; }
+
+// Seed demo
+if (DB.units.length === 0) {
+  DB.addUnit({ unit_name: '示例科技有限公司', credit_code: '91110000MA01ABCD01', address: '北京市朝阳区示例路1号' });
+  DB.addUnit({ unit_name: '测试网络股份公司', credit_code: '91110000MA01EFGH02', address: '上海市浦东新区测试大道88号' });
+}
+if (DB.wifiRecords.length === 0) {
+  [{ ssid:'TP-LINK_Office',bssid:'2C:AB:00:11:22:33',signal:-45,channel:6,encrypt_type:'WPA2',band:'2.4G',vendor:'TP-Link' },
+   { ssid:'Huawei-WiFi-5G',bssid:'00:18:82:AA:BB:CC',signal:-58,channel:36,encrypt_type:'WPA3',band:'5G',vendor:'Huawei' },
+   { ssid:'ChinaNet-guestWiFi',bssid:'00:1A:2B:CC:DD:EE',signal:-72,channel:11,encrypt_type:'WPA2',band:'2.4G',vendor:'Cisco' }].forEach(s => DB.addWifi(s));
+  const u = DB.units[0]; const r = DB.wifiRecords[0]; if (r && u) { r.unit_id = u.id; r.unit_name = u.unit_name; DB.saveWifi(); }
+}
+
+// ══════════════════════ CLOCK ══════════════════════
+function updateClock() { document.getElementById('clock').textContent = new Date().toTimeString().slice(0,5); }
+updateClock(); setInterval(updateClock, 10000);
+
+// ══════════════════════ NAV ══════════════════════
+let currentPage = 'scan';
+function switchPage(p) {
+  if (!isAdmin() && p !== 'mine' && DB.moduleVisibility[p] === false) { showToast('该功能模块已被管理员禁用'); return; }
+  document.getElementById('page-' + currentPage).classList.remove('active');
+  document.getElementById('nav-' + currentPage).classList.remove('active');
+  currentPage = p;
+  document.getElementById('page-' + p).classList.add('active');
+  document.getElementById('nav-' + p).classList.add('active');
+  if (p === 'records') renderRecords();
+  if (p === 'units') renderUnits();
+  if (p === 'mine') renderMine();
+  document.getElementById('page-' + p).scrollTop = 0;
+  updateBatchBar();
+}
+function applyModuleVisibility() {
+  ['scan','records','units'].forEach(t => {
+    const btn = document.getElementById('nav-' + t);
+    if (DB.moduleVisibility[t] === false && !isAdmin()) btn.classList.add('nav-hidden');
+    else btn.classList.remove('nav-hidden');
+  });
+}
+
+// ══════════════════════ SCAN ══════════════════════
+let scanFilter = 'all', scanResults = [], scanning = false, currentWifi = null, selectedBssids = new Set(), scanResultMap = {};
+
+function setScanFilter(f, el) { scanFilter = f; document.querySelectorAll('#filterRow .filter-chip').forEach(c => c.classList.remove('active')); el.classList.add('active'); renderScanList(); }
+function startScan() {
+  if (scanning) return;
+  scanning = true; scanResults = []; selectedBssids.clear();
+  document.getElementById('scanRing').classList.add('scanning');
+  document.getElementById('scanTitle').textContent = '扫描中...'; document.getElementById('scanDesc').textContent = '正在探测周围无线信号';
+  document.getElementById('progressWrap').style.display = 'block'; document.getElementById('wifiEmpty').style.display = 'none'; document.getElementById('wifiList').innerHTML = '';
+  let progress = 0; const bar = document.getElementById('progressBar'), iv = setInterval(() => { progress = Math.min(progress + Math.random()*15, 90); bar.style.width = progress+'%'; }, 200);
+  setTimeout(() => { clearInterval(iv); bar.style.width = '100%';
+    // ── 优先使用 Android 原生 WiFi 扫描（通过 NativeBridge 桥接）──
+    if (typeof NativeBridge !== 'undefined' && typeof NativeBridge.scanWifi === 'function') {
+      try {
+        const raw = JSON.parse(NativeBridge.scanWifi());
+        if (raw && !raw.status) {
+          scanResults = raw.map(r => ({
+            ssid: r.ssid || '', bssid: r.bssid || '', signal: r.signal || 0,
+            channel: r.channel || 0, encrypt_type: r.encrypt_type || '未知',
+            band: r.band || '2.4G', vendor: r.vendor || '未知',
+            collect_time: new Date().toLocaleString()
+          }));
+        } else { scanResults = []; }
+      } catch (e) { console.warn('原生扫描失败，降级为模拟数据:', e); scanResults = _genMockScan(); }
+    } else {
+      scanResults = _genMockScan();
+    }
+    scanning = false;
+    document.getElementById('scanRing').classList.remove('scanning');
+    document.getElementById('scanTitle').textContent = scanResults.length ? '发现 '+scanResults.length+' 个网络' : '未发现网络';
+    document.getElementById('scanDesc').textContent = scanResults.length ? '勾选 WiFi -> 保存/绑定单位' : '请确认已开启位置权限后重试';
+    document.getElementById('progressWrap').style.display = 'none'; updateStats(); renderScanList();
+  }, 2500);
+}
+function _genMockScan() {
+  const rnd3 = () => (Math.floor(Math.random()*256)).toString(16).padStart(2,'0').toUpperCase();
+  const rndMac = () => Array.from({length:3}, rnd3).join(':');
+  const rndSuffix = () => Math.random().toString(36).substr(2,4).toUpperCase();
+  return [
+    { ssid:'TP-LINK_Home_5G',bssid:'2C:AB:00:'+rndMac(),signal:-38,channel:149,encrypt_type:'WPA3',band:'5G',vendor:'TP-Link' },
+    { ssid:'Xiaomi_WiFi_6E',bssid:'F8:A4:5F:'+rndMac(),signal:-44,channel:36,encrypt_type:'WPA3',band:'5G',vendor:'Xiaomi' },
+    { ssid:'CMCC-EDU',bssid:'00:1A:2B:'+rndMac(),signal:-52,channel:6,encrypt_type:'WPA2-Enterprise',band:'2.4G',vendor:'Cisco' },
+    { ssid:'Huawei-AP-2.4G',bssid:'00:18:82:'+rndMac(),signal:-61,channel:1,encrypt_type:'WPA2',band:'2.4G',vendor:'Huawei' },
+    { ssid:'Apple_Airport',bssid:'18:65:90:'+rndMac(),signal:-65,channel:11,encrypt_type:'WPA2',band:'2.4G',vendor:'Apple' },
+    { ssid:'ASUS_RT-AX88U',bssid:'EC:8C:A2:'+rndMac(),signal:-68,channel:100,encrypt_type:'WPA3',band:'5G',vendor:'ASUS' },
+    { ssid:'Guest_Netgear',bssid:'20:E5:2A:'+rndMac(),signal:-71,channel:3,encrypt_type:'开放',band:'2.4G',vendor:'Netgear' },
+    { ssid:'D-Link_DIR-825',bssid:'00:1D:0F:'+rndMac(),signal:-75,channel:9,encrypt_type:'WPA2',band:'2.4G',vendor:'D-Link' },
+    { ssid:'',bssid:'00:50:56:'+rndMac(),signal:-79,channel:52,encrypt_type:'WPA2',band:'5G',vendor:'VMware' },
+    { ssid:'ChinaNet-'+rndSuffix(),bssid:'00:0C:29:'+rndMac(),signal:-82,channel:13,encrypt_type:'WPA2',band:'2.4G',vendor:'VMware' },
+  ];
+}
+function signalBars(sig) { const pct = Math.max(0,Math.min(100,(sig+100)*2)), on = pct>75?4:pct>50?3:pct>25?2:1; return '<div class="signal-bar">'+[8,12,16,20].map((h,i)=>'<span style="height:'+h+'px" class="'+(i<on?'on':'')+'"></span>').join('')+'</div>'; }
+function renderScanList() {
+  const list = document.getElementById('wifiList'), empty = document.getElementById('wifiEmpty');
+  let items = scanResults.slice();
+  if (scanFilter==='2.4G') items=items.filter(r=>r.band==='2.4G');
+  else if (scanFilter==='5G') items=items.filter(r=>r.band==='5G');
+  else if (scanFilter==='open') items=items.filter(r=>r.encrypt_type==='开放');
+  else if (scanFilter==='saved') items=items.filter(r=>DB.wifiRecords.find(x=>x.bssid===r.bssid));
+  scanResultMap = {}; items.forEach(r => scanResultMap[r.bssid] = r);
+  if (!items.length) { empty.style.display=''; list.innerHTML=''; return; }
+  empty.style.display='none'; let html='';
+  for (const r of items) {
+    const saved = DB.wifiRecords.find(x=>x.bssid===r.bssid), checked = selectedBssids.has(r.bssid)?' checked':'';
+    const encTag = r.encrypt_type==='开放'?'<span class="tag tag-orange">开放</span>':'<span class="tag tag-blue">'+r.encrypt_type+'</span>';
+    const savedTag = saved?'<span class="tag tag-green">已保存</span>':'';
+    const boundTag = (saved&&saved.unit_name)?'<span class="tag tag-green">'+saved.unit_name+'</span>':'';
+    const escapedBssid = r.bssid.replace(/'/g,"\\'");
+    html += '<div class="wifi-item'+checked+'" data-bssid="'+r.bssid+'">'+
+      '<div class="wifi-cb" onclick="toggleScanItem(\''+escapedBssid+'\',this.parentElement)"><div class="wifi-cb-inner"></div></div>'+
+      '<div class="wifi-icon"><svg viewBox="0 0 24 24"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="var(--primary)"/></svg></div>'+
+      '<div class="wifi-body" onclick="openScanDetail(\''+escapedBssid+'\')"><div class="wifi-ssid">'+(r.ssid||'&lt;隐藏网络&gt;')+'</div><div class="wifi-meta">'+r.bssid+' · '+r.band+' · 信道 '+r.channel+' · '+r.vendor+'</div><div class="wifi-tags">'+encTag+savedTag+boundTag+'</div></div>'+
+      '<div class="wifi-right">'+signalBars(r.signal)+'<div style="font-size:11px;color:var(--text3);margin-top:3px">'+r.signal+' dBm</div></div></div>';
+  } list.innerHTML = html; updateBatchBar();
+}
+function toggleScanItem(bssid, el) { if (selectedBssids.has(bssid)) { selectedBssids.delete(bssid); el.classList.remove('checked'); } else { selectedBssids.add(bssid); el.classList.add('checked'); } updateBatchBar(); }
+function openScanDetail(bssid) {
+  const r = scanResultMap[bssid]; if (!r) return; currentWifi = r;
+  document.getElementById('detailTitle').textContent = r.ssid||'<隐藏网络>';
+  const saved = DB.wifiRecords.find(x=>x.bssid===r.bssid), btn = document.getElementById('detailSaveBtn');
+  if (saved) { btn.innerHTML = saved.unit_name ? '已保存 · '+saved.unit_name : '已保存'; btn.disabled = true; }
+  else { btn.innerHTML = '<svg viewBox="0 0 24 24" style="width:16px;height:16px;fill:none;stroke:#fff;stroke-width:2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> 保存到记录库'; btn.disabled = false; }
+  document.getElementById('detailContent').innerHTML = dRow('SSID',r.ssid||'<隐藏网络>')+dRow('BSSID',r.bssid)+dRow('信号强度',r.signal+' dBm')+dRow('信道',r.channel)+dRow('频段',r.band)+dRow('加密方式',r.encrypt_type)+dRow('厂商',r.vendor);
+  openModal('wifiDetailModal');
+}
+function dRow(l,v) { return '<div class="detail-row"><div class="detail-label">'+l+'</div><div class="detail-value">'+v+'</div></div>'; }
+function saveCurrentWifi() { if (!currentWifi) return; DB.addWifi({...currentWifi}) ? (showToast('已保存到记录库'),updateStats(),renderScanList()) : showToast('该 WiFi 已在记录库中'); closeModal('wifiDetailModal'); }
+
+// ══════════════════════ BATCH BAR ══════════════════════
+function updateBatchBar() {
+  const bar = document.getElementById('batchBar'), onScan = currentPage==='scan';
+  if (onScan && selectedBssids.size > 0) {
+    bar.classList.add('visible'); document.getElementById('batchCount').textContent = selectedBssids.size;
+    document.getElementById('batchBindBtn').style.display = hasPerm('scan_bind') ? '' : 'none';
+  } else { bar.classList.remove('visible'); }
+}
+function batchSave(){if(currentPage!=='scan'||selectedBssids.size===0)return;let saved=0,skip=0;[...selectedBssids].forEach(bssid=>{const r=scanResultMap[bssid];if(r)DB.addWifi({...r})?saved++:skip++;});updateStats();renderScanList();showToast('已保存 '+saved+' 条'+(skip>0?'（'+skip+' 条已存在）':''));}
+function batchBind(){if(currentPage!=='scan'||selectedBssids.size===0||!hasPerm('scan_bind'))return;[...selectedBssids].forEach(bssid=>{const r=scanResultMap[bssid];if(r&&!DB.wifiRecords.find(x=>x.bssid===bssid))DB.addWifi({...r});});updateStats();document.getElementById('bindTitle').textContent='绑定单位';document.getElementById('bindSubtitle').textContent='将 '+selectedBssids.size+' 条 WiFi 统一绑定到：';document.getElementById('bindUnitSearch').value='';renderBindUnitList();openModal('bindUnitModal');}
+function doBind(unitId) { const bssids=[...selectedBssids], cnt=DB.bulkBindByBssid(bssids,unitId); const u=DB.units.find(x=>x.id===unitId); closeModal('bindUnitModal'); selectedBssids.clear(); renderScanList(); showToast('已将 '+cnt+' 条 WiFi 绑定到「'+(u?u.unit_name:'')+'」'); }
+
+// ══════════════════════ STATS ══════════════════════
+function updateStats() { const today=new Date().toLocaleDateString('zh-CN'); document.getElementById('statTotal').textContent=DB.wifiRecords.length; document.getElementById('statToday').textContent=DB.wifiRecords.filter(r=>r.collect_time&&r.collect_time.startsWith(today)).length; document.getElementById('statUnit').textContent=DB.units.length; }
+updateStats();
+
+// ══════════════════════ RECORDS ══════════════════════
+let recordFilter='all', selectedRecordIds=new Set();
+function setRecordFilter(f,el) { if (!hasPerm('records_filter') && f !== 'all') { showToast('筛选功能已被管理员限制'); return; } recordFilter=f; document.querySelectorAll('#recordFilterRow .filter-chip').forEach(c=>c.classList.remove('active')); el.classList.add('active'); renderRecords(); }
+function renderRecords() {
+  document.getElementById('recordsSubtitle').textContent='共 '+DB.wifiRecords.length+' 条记录';
+  const q=document.getElementById('recordSearch').value.toLowerCase();
+  let rows=DB.wifiRecords.filter(r=>{if(q&&!r.ssid.toLowerCase().includes(q)&&!r.bssid.toLowerCase().includes(q)) return false; if(recordFilter==='2.4G'&&r.band!=='2.4G') return false; if(recordFilter==='5G'&&r.band!=='5G') return false; if(recordFilter==='bound'&&!r.unit_id) return false; if(recordFilter==='unbound'&&r.unit_id) return false; if(recordFilter==='exported'&&!r.exported) return false; if(recordFilter==='unexported'&&r.exported) return false; return true; });
+  const list=document.getElementById('recordList');
+  if(!rows.length){list.innerHTML='<div class="empty"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg><p>暂无匹配记录</p></div>';document.getElementById('exportCountLabel').textContent='可选择记录后导出';return; }
+  document.getElementById('exportCountLabel').textContent='共 '+rows.length+' 条 · 选中 '+selectedRecordIds.size;
+  document.getElementById('recordExportBar').style.display = hasPerm('records_export') ? '' : 'none';
+  document.getElementById('recordFilterRow').style.display = hasPerm('records_filter') ? '' : 'none';
+  let html=''; for(const r of rows){ const checked=selectedRecordIds.has(r.id)?' checked':'', boundTag=r.unit_name?'<span class="tag tag-green">'+r.unit_name+'</span>':'<span class="tag tag-gray">未绑定</span>', exportTag=r.exported?'<span class="tag tag-blue">已导出</span>':'';
+    const delBtn = hasPerm('records_delete') ? '<button class="btn btn-xs" style="background:#fff2f0;color:var(--danger)" onclick="deleteRecord('+r.id+')">删除</button>' : '';
+    html+='<div class="wifi-item'+checked+'" data-wifi-id="'+r.id+'"><div class="wifi-cb" onclick="toggleRecordItem('+r.id+',this.parentElement)"><div class="wifi-cb-inner"></div></div><div class="wifi-icon"><svg viewBox="0 0 24 24"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="var(--primary)"/></svg></div><div class="wifi-body" style="cursor:default"><div class="wifi-ssid">'+(r.ssid||'&lt;隐藏网络&gt;')+'</div><div class="wifi-meta">'+r.bssid+' · '+r.band+' · '+r.signal+' dBm · '+r.encrypt_type+'</div><div class="wifi-tags">'+boundTag+exportTag+'</div></div><div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end"><span style="font-size:11px;color:var(--text3)">'+r.collect_time+'</span>'+delBtn+'</div></div>'; }
+  list.innerHTML=html;
+}
+function toggleRecordItem(id,el){if(selectedRecordIds.has(id)){selectedRecordIds.delete(id);el.classList.remove('checked');}else{selectedRecordIds.add(id);el.classList.add('checked');}renderRecords();}
+function toggleRecordSelectAll(){const q=document.getElementById('recordSearch').value.toLowerCase();let rows=DB.wifiRecords.filter(r=>{if(q&&!r.ssid.toLowerCase().includes(q)&&!r.bssid.toLowerCase().includes(q)) return false;if(recordFilter==='2.4G'&&r.band!=='2.4G') return false;if(recordFilter==='5G'&&r.band!=='5G') return false;if(recordFilter==='bound'&&!r.unit_id) return false;if(recordFilter==='unbound'&&r.unit_id) return false;if(recordFilter==='exported'&&!r.exported) return false;if(recordFilter==='unexported'&&r.exported) return false;return true;});if(selectedRecordIds.size===rows.length) selectedRecordIds.clear();else rows.forEach(r=>selectedRecordIds.add(r.id));renderRecords();}
+function deleteRecord(id){if(!hasPerm('records_delete')){showToast('删除记录功能已被管理员限制');return;}if(!confirm('确认删除该条记录？'))return;selectedRecordIds.delete(id);DB.deleteWifi(id);updateStats();renderScanList();renderRecords();showToast('已删除');}
+function exportSelectedRecords(){if(!hasPerm('records_export')){showToast('导出功能已被管理员限制');return;}if(!selectedRecordIds.size){showToast('请先勾选要导出的记录');return;}const rows=DB.wifiRecords.filter(r=>selectedRecordIds.has(r.id));if(!rows.length){showToast('未找到选中记录');return;}const headers=['ID','SSID','BSSID','信号(dBm)','信道','加密方式','频段','厂商','采集时间','关联单位'];const keys=['id','ssid','bssid','signal','channel','encrypt_type','band','vendor','collect_time','unit_name'];const csv=[headers,...rows.map(r=>keys.map(k=>'"'+String(r[k]||'').replace(/"/g,'""')+'"'))].map(r=>r.join(',')).join('\n');const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='wifi_export_'+new Date().toLocaleDateString('zh-CN').replace(/\//g,'-')+'.csv';a.click();URL.revokeObjectURL(a.href);rows.forEach(r=>r.exported=true);DB.saveWifi();showToast('已导出 '+rows.length+' 条记录');renderRecords();}
+
+// ══════════════════════ UNITS ══════════════════════
+let editingUnitId=null;
+function renderUnits(){document.getElementById('unitsSubtitle').textContent='共 '+DB.units.length+' 个单位';const q=document.getElementById('unitSearch').value.toLowerCase();let rows=DB.units.filter(u=>!q||u.unit_name.toLowerCase().includes(q)||u.credit_code.includes(q));const list=document.getElementById('unitList');
+  // Check permissions for UI
+  const showEdit = hasPerm('units_edit'), showDel = hasPerm('units_delete');
+  document.getElementById('unitFab').style.display = hasPerm('units_add') ? '' : 'none';
+  document.getElementById('unitImportBtn').style.display = hasPerm('units_import') ? '' : 'none';
+  if(!rows.length){list.innerHTML='<div class="empty"><svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg><p>暂无单位数据</p></div>';return;}
+  let html='';for(const u of rows){const cnt=DB.wifiRecords.filter(r=>r.unit_id===u.id).length;html+='<div class="unit-item"><div class="unit-avatar">'+(u.unit_name[0]||'?')+'</div><div class="unit-body"><div class="unit-name">'+u.unit_name+'</div><div class="unit-code">'+u.credit_code+'</div><div class="unit-addr">'+u.address+'</div><div style="margin-top:4px"><span class="tag tag-blue">关联 '+cnt+' 个 WiFi</span></div></div><div class="unit-right">'+(showEdit?'<button class="btn btn-sm btn-outline" onclick="editUnit('+u.id+')">编辑</button>':'')+(showDel?'<button class="btn btn-sm" style="background:#fff2f0;color:var(--danger)" onclick="deleteUnit('+u.id+')">删除</button>':'')+'</div></div>';}
+  list.innerHTML=html;
+}
+function showAddUnit(){if(!hasPerm('units_add')){showToast('添加单位功能已被管理员限制');return;}editingUnitId=null;document.getElementById('unitModalTitle').textContent='添加单位';['unitName','unitCode','unitAddr'].forEach(id=>document.getElementById(id).value='');openModal('addUnitModal');}
+function editUnit(id){if(!hasPerm('units_edit')){showToast('编辑单位功能已被管理员限制');return;}const u=DB.units.find(x=>x.id===id);if(!u)return;editingUnitId=id;document.getElementById('unitModalTitle').textContent='编辑单位';document.getElementById('unitName').value=u.unit_name;document.getElementById('unitCode').value=u.credit_code;document.getElementById('unitAddr').value=u.address;openModal('addUnitModal');}
+function submitUnit(){const name=document.getElementById('unitName').value.trim(),code=document.getElementById('unitCode').value.trim(),addr=document.getElementById('unitAddr').value.trim();if(!name){showToast('请输入单位名称');return;}if(!code){showToast('请输入信用代码');return;}if(!addr){showToast('请输入地址');return;}if(editingUnitId){DB.updateUnit(editingUnitId,{unit_name:name,credit_code:code,address:addr});showToast('已更新');}else{DB.addUnit({unit_name:name,credit_code:code,address:addr})?showToast('添加成功'):showToast('该单位名称已存在');}closeModal('addUnitModal');updateStats();renderUnits();}
+function deleteUnit(id){if(!hasPerm('units_delete')){showToast('删除单位功能已被管理员限制');return;}if(!confirm('确认删除该单位？关联 WiFi 记录将解除绑定。'))return;DB.deleteUnit(id);updateStats();renderUnits();showToast('已删除');}
+function triggerUnitImport(){if(!hasPerm('units_import')){showToast('导入功能已被管理员限制');return;}document.getElementById('unitFileInput').click();}
+function importUnitsCSV(e){const file=e.target.files[0];e.target.value='';if(!file)return;const reader=new FileReader();reader.onload=function(ev){let cnt=0,skip=0;const lines=ev.target.result.split(/\r?\n/).filter(l=>l.trim());if(lines.length<2){showToast('CSV 文件格式不正确');return;}for(let i=1;i<lines.length;i++){const cols=lines[i].split(',').map(c=>c.replace(/^"|"$/g,'').trim());if(cols.length<3)continue;if(DB.addUnit({unit_name:cols[0],credit_code:cols[1],address:cols[2]}))cnt++;else skip++;}updateStats();renderUnits();showToast('导入 '+cnt+' 条'+(skip>0?'（'+skip+' 条重复已跳过）':''));};reader.readAsText(file,'UTF-8');}
+function escapeHtml(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+function renderBindUnitList(keyword){const kw=(keyword||'').toLowerCase();const el=document.getElementById('bindUnitList');let rows=DB.units;if(kw){rows=rows.filter(u=>u.unit_name.toLowerCase().includes(kw)||u.credit_code.toLowerCase().includes(kw));}if(!rows.length){el.innerHTML='<div style="text-align:center;padding:30px;color:var(--text3);font-size:14px">'+(kw?'未找到匹配的单位':'暂无单位，请先在「单位」页面添加')+'</div>';return;}el.innerHTML=rows.map(u=>'<div class="unit-opt" onclick="doBind('+JSON.stringify(u.id)+')"><div class="unit-opt-avatar">'+(u.unit_name[0]||'?')+'</div><div class="unit-opt-body"><div class="unit-opt-name">'+escapeHtml(u.unit_name)+'</div><div class="unit-opt-code">'+escapeHtml(u.credit_code)+'</div></div><svg viewBox="0 0 24 24" style="width:16px;height:16px;fill:none;stroke:var(--text3);stroke-width:2"><polyline points="9 18 15 12 9 6"/></svg></div>').join('');}
+
+// ══════════════════════ MINE ══════════════════════
+function renderMine(){
+  const loginPanel=document.getElementById('loginPanel'), loggedIn=document.getElementById('loggedInPanel');
+  if(DB.currentUser){
+    loginPanel.style.display='none'; loggedIn.style.display='';
+    document.getElementById('mineSubtitle').textContent=DB.currentUser.role==='admin'?'管理员 · 可管理用户与权限':'已登录 · '+DB.currentUser.displayName;
+    document.getElementById('permAvatar').textContent=(DB.currentUser.displayName||'U')[0];
+    document.getElementById('permName').textContent=DB.currentUser.displayName||DB.currentUser.username;
+    document.getElementById('permRole').textContent=DB.currentUser.role==='admin'?'管理员':'普通用户';
+    updateUserBadge();
+
+    if(isAdmin()){
+      // Module coarse toggles
+      document.getElementById('moduleToggleCard').style.display='';
+      const modules=[{key:'scan',label:'扫描',desc:'WiFi 信号扫描与发现'},{key:'records',label:'记录',desc:'查看、筛选和导出 WiFi 记录'},{key:'units',label:'单位管理',desc:'单位信息管理'}];
+      document.getElementById('moduleToggles').innerHTML=modules.map(m=>'<div class="perm-item"><div><div class="perm-label">'+m.label+'</div><div class="perm-desc">控制普通用户能否看到该模块 Tab</div></div><button class="toggle-sw'+(DB.moduleVisibility[m.key]!==false?' on':'')+'" onclick="toggleModule(\''+m.key+'\',this)"></button></div>').join('');
+      // User management
+      document.getElementById('userMgmtCard').style.display='';
+      renderUserList();
+      // Hide my perms for admin (admin has all)
+      document.getElementById('myPermsCard').style.display='none';
+    } else {
+      document.getElementById('moduleToggleCard').style.display='none';
+      document.getElementById('userMgmtCard').style.display='none';
+      document.getElementById('myPermsCard').style.display='';
+      renderMyPerms();
+    }
+  } else {
+    loginPanel.style.display=''; loggedIn.style.display='none';
+    document.getElementById('mineSubtitle').textContent='登录后可管理权限';
+    document.getElementById('loginUser').value=''; document.getElementById('loginPass').value='';
+    updateUserBadge();
+  }
+}
+function toggleModule(key,btn){if(!isAdmin())return;DB.moduleVisibility[key]=!(DB.moduleVisibility[key]!==false);DB.saveModules();btn.classList.toggle('on',DB.moduleVisibility[key]!==false);applyModuleVisibility();showToast('模块可见性已更新');}
+function renderUserList(){
+  const el=document.getElementById('userList'), html=USERS.map(u=>{
+    const perms=u.role==='admin'?{...GRANULAR_PERMS_DEFAULT}:(USER_PERMS[u.username]||{...GRANULAR_PERMS_DEFAULT});
+    const permKeys=Object.keys(GRANULAR_PERMS_DEFAULT);
+    const active=permKeys.filter(k=>perms[k]!==false).length, total=permKeys.length;
+    const chips=permKeys.slice(0,4).map(k=>'<span class="perm-chip'+(perms[k]===false?' off':'')+'">'+permLabels[k]+'</span>').join('');
+    return '<div class="user-list-item"><div class="user-avatar" style="width:40px;height:40px;font-size:14px;'+(u.role==='admin'?'background:var(--primary);color:#fff':'')+'">'+(u.displayName||'?')[0]+'</div><div style="flex:1;min-width:0"><div style="font-size:15px;font-weight:500">'+u.displayName+' <span class="tag tag-blue" style="font-size:10px">'+u.role+'</span></div><div style="font-size:12px;color:var(--text3);margin-top:2px">'+u.username+' · 权限 '+active+'/'+total+'</div><div style="margin-top:3px">'+chips+'</div></div><div style="display:flex;gap:6px;flex-shrink:0">'+(u.role!=='admin'?'<button class="btn btn-xs btn-outline" onclick="editUserPerms(\''+u.username+'\')">权限</button><button class="btn btn-xs" style="background:#fff2f0;color:var(--danger)" onclick="deleteUser(\''+u.username+'\')">删除</button>':'')+'</div></div>';
+  }).join('');
+  el.innerHTML=html||'<div style="text-align:center;padding:20px;color:var(--text3);font-size:14px">暂无其他用户</div>';
+}
+function renderMyPerms(){
+  const perms=getPerms(), keys=Object.keys(GRANULAR_PERMS_DEFAULT);
+  const groups={扫描:['scan_view','scan_bind'],记录:['records_view','records_filter','records_export','records_delete'],单位管理:['units_view','units_add','units_edit','units_delete','units_import']};
+  let html='';
+  for(const [group,gKeys] of Object.entries(groups)){
+    html+='<div class="perm-group"><div class="perm-section-label">'+group+'</div>';
+    gKeys.forEach(k=>{html+='<div class="perm-item"><span class="perm-label">'+permLabels[k]+'</span><span class="tag '+(perms[k]!==false?'tag-green':'tag-red')+'">'+(perms[k]!==false?'允许':'禁止')+'</span></div>';});
+    html+='</div>';
+  }
+  document.getElementById('myPermsList').innerHTML=html;
+}
+function doLogin(){
+  const user=document.getElementById('loginUser').value.trim(), pass=document.getElementById('loginPass').value.trim();
+  if(!user||!pass){showToast('请输入账号和密码');return;}
+  const found=USERS.find(u=>u.username===user&&u.password===pass);
+  if(found){DB.currentUser={username:found.username,displayName:found.displayName,role:found.role};DB.saveUser();showToast(found.displayName+' 登录成功');
+    // Check password age: warn if >3 months (90 days)
+    if(found.password_changed_at){const last=new Date(found.password_changed_at),now=new Date(),diff=now-last,days=diff/(24*3600*1000);if(days>90){document.getElementById('pwdExpireMsg').textContent='您的密码已超过3个月未更改（距今约 '+Math.floor(days)+' 天），建议及时修改以保证账户安全。';openModal('pwdExpireModal');}}}else{showToast('账号或密码错误');return;}
+  applyModuleVisibility();renderMine();switchPage('mine');
+}
+function skipLogin(){DB.currentUser=null;DB.saveUser();DB.moduleVisibility={scan:true,records:true,units:true};DB.saveModules();applyModuleVisibility();showToast('已进入游客模式');switchPage('scan');updateUserBadge();}
+function doLogout(){DB.currentUser=null;DB.saveUser();DB.moduleVisibility={scan:true,records:true,units:true};DB.saveModules();applyModuleVisibility();showToast('已退出登录');updateUserBadge();renderMine();switchPage('mine');}
+function updateUserBadge(){const badge=document.getElementById('userBadge'),avatar=document.getElementById('userAvatar'),label=document.getElementById('userLabel');if(DB.currentUser){badge.className='user-badge'+(DB.currentUser.role==='admin'?' admin':'');avatar.textContent=(DB.currentUser.displayName||'U')[0];label.textContent=DB.currentUser.displayName;}else{badge.className='user-badge';avatar.textContent='客';label.textContent='游客';}}
+
+// ══════════════════════ USER MANAGEMENT ACTIONS ══════════════════════
+function showAddUser(){document.getElementById('addUserTitle').textContent='添加用户';['newUserDisplay','newUserName','newUserPass'].forEach(id=>document.getElementById(id).value='');openModal('addUserModal');}
+function submitAddUser(){
+  const display=document.getElementById('newUserDisplay').value.trim(),name=document.getElementById('newUserName').value.trim(),pass=document.getElementById('newUserPass').value.trim();
+  if(!display||!name||!pass){showToast('所有字段为必填');return;}
+  if(pass.length<4){showToast('密码至少4位');return;}
+  if(USERS.find(u=>u.username===name)){showToast('该账号已存在');return;}
+  USERS.push({username:name,password:pass,role:'user',displayName:display,password_changed_at:new Date().toISOString()});
+  USER_PERMS[name] = {...GRANULAR_PERMS_DEFAULT};
+  saveUsers(); savePerms();
+  closeModal('addUserModal'); renderUserList(); showToast('用户「'+display+'」已创建');
+}
+function deleteUser(username){if(!confirm('确认删除用户 '+username+'？'))return;USERS=USERS.filter(u=>u.username!==username);delete USER_PERMS[username];saveUsers();savePerms();renderUserList();showToast('用户已删除');}
+
+let _editingPermUser = null;
+function editUserPerms(username){
+  const u=USERS.find(x=>x.username===username);if(!u)return;
+  _editingPermUser=username;
+  document.getElementById('editPermTitle').textContent='编辑权限';
+  document.getElementById('editPermName').textContent=u.displayName+' ('+username+')';
+  renderPermEditForm(USER_PERMS[username]||{...GRANULAR_PERMS_DEFAULT});
+  openModal('editPermModal');
+}
+const permLabels = { scan_view:'扫描功能', scan_bind:'绑定单位', records_view:'查看记录', records_filter:'筛选功能', records_export:'导出功能', records_delete:'删除记录', units_view:'单位管理', units_add:'添加单位', units_edit:'修改单位', units_delete:'删除单位', units_import:'导入单位' };
+function renderPermEditForm(perms){
+  const groups = [
+    {label:'扫描', keys:['scan_view','scan_bind']},
+    {label:'记录', keys:['records_view','records_filter','records_export','records_delete']},
+    {label:'单位管理', keys:['units_view','units_add','units_edit','units_delete','units_import']}
+  ];
+  let html='';
+  groups.forEach(g=>{
+    html+='<div style="margin-bottom:8px"><div class="perm-section-label">'+g.label+'</div>';
+    g.keys.forEach(k=>{html+='<div class="perm-item"><div><div class="perm-label">'+permLabels[k]+'</div></div><button class="toggle-sw'+(perms[k]!==false?' on':'')+'" data-perm-key="'+k+'" onclick="editPermToggle(this)"></button></div>';});
+    html+='</div>';
+  });
+  document.getElementById('editPermGroups').innerHTML=html;
+}
+function editPermToggle(btn){btn.classList.toggle('on');}
+function saveUserPerms(){
+  if(!_editingPermUser)return;
+  const perms={};
+  document.querySelectorAll('#editPermGroups .toggle-sw').forEach(btn=>{perms[btn.dataset.permKey]=btn.classList.contains('on');});
+  USER_PERMS[_editingPermUser]=perms;savePerms();
+  closeModal('editPermModal');renderUserList();
+  if(DB.currentUser&&DB.currentUser.username===_editingPermUser)renderMine();
+  showToast('权限已保存');
+}
+
+// ══════════════════════ PASSWORD MANAGEMENT ══════════════════════
+function showPwdChange(){
+  if(!DB.currentUser){showToast('请先登录');return;}
+  document.getElementById('pwdChangeUser').textContent=DB.currentUser.displayName+' ('+DB.currentUser.username+')';
+  ['oldPwd','newPwd','confirmPwd'].forEach(id=>document.getElementById(id).value='');
+  openModal('pwdChangeModal');
+}
+function submitPwdChange(){
+  const old=document.getElementById('oldPwd').value.trim(), pwd=document.getElementById('newPwd').value.trim(), cfm=document.getElementById('confirmPwd').value.trim();
+  if(!old||!pwd||!cfm){showToast('所有字段为必填');return;}
+  if(pwd.length<4){showToast('新密码至少4位');return;}
+  if(pwd!==cfm){showToast('两次新密码不一致');return;}
+  const u=USERS.find(x=>x.username===DB.currentUser.username);
+  if(!u||u.password!==old){showToast('当前密码错误');return;}
+  if(old===pwd){showToast('新密码不能与当前密码相同');return;}
+  u.password=pwd;u.password_changed_at=new Date().toISOString();saveUsers();
+  closeModal('pwdChangeModal');showToast('密码修改成功！');
+}
+function skipPwdChange(){closeModal('pwdExpireModal');}
+function goToPwdChange(){closeModal('pwdExpireModal');showPwdChange();}
+function openModal(id){document.getElementById(id).classList.add('open');}
+function closeModal(id){document.getElementById(id).classList.remove('open');}
+let toastTimer;
+function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),2400);}
+
+// ══════════════════════ INIT ══════════════════════
+applyModuleVisibility();updateUserBadge();
+
+// ══════════════════════ ANDROID/MOBILE HEIGHT FIX ══════════════════════
+// Fix "100vh" issue on Android Chrome where address bar changes viewport height
+function setAppHeight(){const vh=window.innerHeight;document.documentElement.style.setProperty('--real-vh',vh+'px');document.querySelector('.app').style.height=(vh-document.querySelector('.status-bar').offsetHeight)+'px';}
+setAppHeight();
+window.addEventListener('resize', setAppHeight);
+window.addEventListener('orientationchange', () => setTimeout(setAppHeight, 200));
+
+// Make saveUserPerms globally accessible for onclick
+window.saveUserPerms = saveUserPerms;
+window.editPermToggle = editPermToggle;
+</script>
+</body>
+</html>
