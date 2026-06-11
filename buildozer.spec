@@ -34,6 +34,9 @@ android.version_code = 1
 # 启用 AndroidX + Material Components
 android.gradle_dependencies = androidx.appcompat:appcompat:1.6.1,com.google.android.material:material:1.9.0
 
+# 自动接受 Android SDK 许可证（CI 自动化必需）
+android.accept_sdk_license = True
+
 # 日志级别
 android.logcat_filters = *:S python:D
 
