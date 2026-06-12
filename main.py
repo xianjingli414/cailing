@@ -3,180 +3,243 @@
 采灵 WiFi 采集管理工具 — Android 原生壳
 Kivy WebView + JavaScript 桥接 → 调用 wifi_scanner._scan_android()
 所有 UI 由 index.html 承载，此文件仅负责 WebView 容器和桥接。
-v2.0: 增加服务端数据库同步，采集数据实时上传到服务器
+v2.2: 修复黑屏 — 使用 run_on_ui_thread + 正确的生命周期管理
 """
 
 import json
 import os
-import threading
+import traceback
 
-# Kivy imports (Buildozer 自动提供)
 from kivy.app import App
 from kivy.clock import Clock
 from kivy.uix.widget import Widget
+from kivy.uix.label import Label
+from kivy.logger import Logger
 
-# 导入服务端API客户端
-import api_client
+# ── 平台检测 ──
+IS_ANDROID = False
+JNIUS_AVAILABLE = False
 
-# Jnius imports（仅在 Android 上可用）
+try:
+    from android.runnable import run_on_ui_thread
+    IS_ANDROID = True
+    Logger.info("[Cailing] android.runnable loaded")
+except ImportError:
+    IS_ANDROID = False
+    # 桌面端降级：run_on_ui_thread 变成直接执行
+    def run_on_ui_thread(f):
+        return f
+
 try:
     from jnius import autoclass, cast, PythonJavaClass, java_method
     JNIUS_AVAILABLE = True
+    Logger.info("[Cailing] jnius loaded")
 except ImportError:
-    JNIUS_AVAILABLE = False
-    print("[Cailing] jnius not available — running in desktop/debug mode")
+    Logger.warning("[Cailing] jnius unavailable — desktop mode")
 
 
 # ══════════════════════════════════════════════════════════
-# JavaScript 桥接对象 — 暴露给 HTML 调用的原生方法
+# JavaScript 桥接对象
 # ══════════════════════════════════════════════════════════
 
 class _JsBridge(PythonJavaClass if JNIUS_AVAILABLE else object):
     """
-    在 Android 上继承 PythonJavaClass 注册为 JS 接口。
-    桌面端退化为普通对象，供 HTML 端检测。
-    v2.0: 增加 scanWifiAndSync（扫描+上传服务器）
+    JS 桥接：HTML → Python 原生方法
+    Android 上通过 addJavascriptInterface 注册
     """
     if JNIUS_AVAILABLE:
         __javainterfaces__ = ['java/lang/Object']
         __javacontext__ = 'app'
 
-    @staticmethod
-    def scanWifi():
-        """供 JavaScript 同步调用，返回 JSON 字符串"""
+    @java_method('()Ljava/lang/String;')
+    def scanWifi(self):
         try:
             from wifi_scanner import _scan_android
             results = _scan_android()
             if not results:
-                return json.dumps({"status": "empty", "message": "未扫描到 WiFi 网络，请确认已开启位置权限"})
+                return json.dumps({"status": "empty", "message": "未扫描到WiFi网络"})
             return json.dumps(results, ensure_ascii=False)
         except Exception as e:
+            Logger.error(f"[Cailing] scanWifi: {e}")
             return json.dumps({"status": "error", "message": str(e)})
 
-    @staticmethod
-    def scanWifiAndSync():
-        """
-        v2.0: 扫描WiFi并同步上传到服务器
-        供 JavaScript 同步调用，返回 JSON 字符串
-        返回格式: {status: "ok", data: [...], sync_ok: N, sync_skip: N}
-                 或 {status: "empty"/"error", ...}
-        """
+    @java_method('()Ljava/lang/String;')
+    def scanWifiAndSync(self):
         try:
             from wifi_scanner import _scan_android
             results = _scan_android()
             if not results:
-                return json.dumps({"status": "empty", "message": "未扫描到 WiFi 网络，请确认已开启位置权限"})
+                return json.dumps({"status": "empty", "message": "未扫描到WiFi网络"})
 
-            # 尝试同步到服务器
             sync_ok, sync_skip = 0, 0
-            if api_client.is_logged_in():
-                sync_ok, sync_skip = api_client.upload_wifi_records(results)
+            try:
+                import api_client
+                if api_client.is_logged_in():
+                    sync_ok, sync_skip = api_client.upload_wifi_records(results)
+            except Exception as ae:
+                Logger.warning(f"[Cailing] sync: {ae}")
 
             return json.dumps({
                 "status": "ok",
                 "data": results,
                 "sync_ok": sync_ok,
                 "sync_skip": sync_skip,
-                "synced": api_client.is_logged_in()
+                "synced": sync_ok > 0
             }, ensure_ascii=False)
         except Exception as e:
             return json.dumps({"status": "error", "message": str(e)})
 
-    @staticmethod
-    def isLoggedIn():
-        """检查是否已登录服务器"""
-        return json.dumps({"logged_in": api_client.is_logged_in(), "user": api_client.get_current_user()})
-
-    @staticmethod
-    def login(username, password):
-        """
-        登录服务器
-        username, password 为字符串参数
-        """
+    @java_method('()Ljava/lang/String;')
+    def isLoggedIn(self):
         try:
+            import api_client
+            return json.dumps({"logged_in": api_client.is_logged_in(), "user": api_client.get_current_user()})
+        except Exception:
+            return json.dumps({"logged_in": False, "user": None})
+
+    @java_method('(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;')
+    def login(self, username, password):
+        try:
+            import api_client
             ok, result = api_client.login(username, password)
             return json.dumps({"success": ok, "result": result if ok else None, "error": result if not ok else None})
         except Exception as e:
             return json.dumps({"success": False, "error": str(e)})
 
-    @staticmethod
-    def logout():
-        """登出服务器"""
-        api_client.logout()
+    @java_method('()Ljava/lang/String;')
+    def logout(self):
+        try:
+            import api_client
+            api_client.logout()
+        except Exception:
+            pass
         return json.dumps({"success": True})
 
-    @staticmethod
-    def getServerUrl():
-        """获取当前服务器地址"""
-        return json.dumps({"url": api_client.get_server_url()})
+    @java_method('()Ljava/lang/String;')
+    def getServerUrl(self):
+        try:
+            import api_client
+            return json.dumps({"url": api_client.get_server_url()})
+        except Exception:
+            return json.dumps({"url": ""})
 
-    @staticmethod
-    def setServerUrl(url):
-        """设置服务器地址"""
-        api_client.set_server_url(url)
+    @java_method('(Ljava/lang/String;)Ljava/lang/String;')
+    def setServerUrl(self, url):
+        try:
+            import api_client
+            api_client.set_server_url(url)
+        except Exception:
+            pass
         return json.dumps({"success": True})
 
 
 # ══════════════════════════════════════════════════════════
-# Kivy 应用入口
+# Kivy 应用
 # ══════════════════════════════════════════════════════════
 
 class CailingApp(App):
-    """Kivy App，承载 Android WebView + 服务端同步"""
+    """采灵 App — WebView 容器"""
 
     def build(self):
-        Clock.schedule_once(self._create_webview, 0.3)
-        return Widget()
+        Logger.info("[Cailing] === CailingApp starting ===")
+        self._root = Widget()
 
-    def _create_webview(self, dt):
-        if not JNIUS_AVAILABLE:
-            print("[Cailing] Desktop mode: WebView not available. Open index.html in browser instead.")
+        # 加载中提示（防止黑屏感知）
+        self._loading = Label(
+            text='采灵 加载中...',
+            font_size='20sp',
+            color=(0.3, 0.3, 0.3, 1),
+            halign='center', valign='middle',
+        )
+        self._root.bind(size=self._loading.setter('size'),
+                         pos=self._loading.setter('pos'))
+        self._root.add_widget(self._loading)
+
+        # 延迟创建 WebView
+        Clock.schedule_once(self._delayed_init, 0.5)
+        return self._root
+
+    def _delayed_init(self, dt):
+        if not IS_ANDROID or not JNIUS_AVAILABLE:
+            self._loading.text = '桌面模式\n请在浏览器中打开 index.html'
             return
+        self._create_webview()
 
+    @run_on_ui_thread
+    def _create_webview(self):
+        """在 UI 线程上创建 WebView（关键！）"""
         try:
-            # ── 获取当前 Activity ──
-            PythonActivity = autoclass('org.kivy.android.PythonActivity')
-            mActivity = PythonActivity.mActivity
+            Logger.info("[Cailing] Creating WebView on UI thread...")
 
-            # ── 创建 WebView ──
-            WebViewCls = autoclass('android.webkit.WebView')
-            webview = WebViewCls(mActivity)
+            mActivity = autoclass('org.kivy.android.PythonActivity').mActivity
+            WebView = autoclass('android.webkit.WebView')
+            webview = WebView(mActivity)
 
-            # 启用 JS + DOM存储（localStorage）
-            settings = webview.getSettings()
-            settings.setJavaScriptEnabled(True)
-            settings.setDomStorageEnabled(True)
-            settings.setAllowFileAccessFromFileURLs(True)
-            settings.setAllowUniversalAccessFromFileURLs(True)
-            settings.setDatabaseEnabled(True)
+            # 设置
+            s = webview.getSettings()
+            s.setJavaScriptEnabled(True)
+            s.setDomStorageEnabled(True)
+            s.setAllowFileAccess(True)
+            s.setAllowContentAccess(True)
+            s.setAllowFileAccessFromFileURLs(True)
+            s.setAllowUniversalAccessFromFileURLs(True)
+            s.setDatabaseEnabled(True)
+            s.setUseWideViewPort(True)
+            s.setLoadWithOverviewMode(True)
+            s.setSupportZoom(False)
+            s.setBuiltInZoomControls(False)
 
-            # 视口自适应
-            settings.setUseWideViewPort(True)
-            settings.setLoadWithOverviewMode(True)
-            settings.setSupportZoom(False)
-            settings.setBuiltInZoomControls(False)
+            webview.setBackgroundColor(0xFFFFFFFF)
 
-            # ── 注册 JS 桥接（v2.0 增强版）──
-            webview.addJavascriptInterface(_JsBridge(), 'NativeBridge')
+            # JS 桥接
+            try:
+                bridge = _JsBridge()
+                webview.addJavascriptInterface(bridge, 'NativeBridge')
+                Logger.info("[Cailing] JS bridge registered ✓")
+            except Exception as e:
+                Logger.warning(f"[Cailing] JS bridge failed: {e}")
 
-            # ── WebView Client ──
+            # WebViewClient
             WebViewClient = autoclass('android.webkit.WebViewClient')
             webview.setWebViewClient(WebViewClient())
 
-            # ── 加载 HTML ──
+            # WebChromeClient（让 console.log 输出到 logcat）
+            try:
+                webview.setWebChromeClient(autoclass('android.webkit.WebChromeClient')())
+            except Exception:
+                pass
+
+            # 加载 index.html
             app_dir = os.path.dirname(os.path.abspath(__file__))
             html_path = os.path.join(app_dir, 'index.html')
-            webview.loadUrl('file://' + html_path)
 
-            # ── 添加到 Activity 布局 ──
-            FrameLayout = autoclass('android.widget.FrameLayout')
-            params = FrameLayout.LayoutParams(-1, -1)  # MATCH_PARENT
-            mActivity.addContentView(webview, params)
+            if os.path.exists(html_path):
+                url = 'file://' + html_path
+                Logger.info(f"[Cailing] Loading: {url}")
+                webview.loadUrl(url)
+            else:
+                Logger.error(f"[Cailing] index.html NOT FOUND: {html_path}")
+                webview.loadData(
+                    '<html><body style="padding:20px;font-size:18px;">'
+                    '<h2>加载失败</h2><p>index.html 未找到</p></body></html>',
+                    'text/html', 'utf-8'
+                )
 
-            print("[Cailing] WebView loaded successfully ✓")
-            print(f"[Cailing] Server sync: {api_client.get_server_url()}")
+            # 使用 setContentView 替换整个内容（Kivy 官方推荐方式）
+            mActivity.setContentView(webview)
+
+            Logger.info("[Cailing] WebView setup complete ✓")
+
         except Exception as e:
-            print(f"[Cailing] WebView creation failed: {e}")
+            Logger.error(f"[Cailing] WebView FAILED: {e}\n{traceback.format_exc()}")
+            # 在 Kivy 线程更新 UI
+            Clock.schedule_once(lambda dt: self._show_error(str(e)), 0)
+
+    def _show_error(self, msg):
+        try:
+            self._loading.text = f'加载失败:\n{msg}'
+        except Exception:
+            pass
 
 
 if __name__ == '__main__':

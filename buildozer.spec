@@ -9,7 +9,7 @@ source.include_exts = py,png,jpg,kv,atlas,html,db
 version = 1.0.0
 
 # 依赖（pyjnius 已在 Kivy 中自带）
-requirements = python3,kivy
+requirements = python3,kivy,pyjnius
 
 orientation = portrait
 fullscreen = 0
