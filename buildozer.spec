@@ -4,7 +4,7 @@ package.name = cailing
 package.domain = com.cailing
 
 source.dir = .
-source.include_exts = py,png,jpg,kv,atlas,html,db
+source.include_exts = py,png,jpg,kv,atlas,html,db,java
 
 version = 1.0.0
 
@@ -36,6 +36,9 @@ android.version_code = 1
 
 # 启用 AndroidX + Material Components
 android.gradle_dependencies = androidx.appcompat:appcompat:1.6.1,com.google.android.material:material:1.9.0
+
+# Java 源码（JsBridge 等）
+android.add_src = source/java
 
 # 日志级别
 android.logcat_filters = *:S python:D
