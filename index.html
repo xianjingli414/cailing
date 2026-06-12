@@ -491,7 +491,26 @@ function startScan() {
   let progress = 0; const bar = document.getElementById('progressBar'), iv = setInterval(() => { progress = Math.min(progress + Math.random()*15, 90); bar.style.width = progress+'%'; }, 200);
   setTimeout(() => { clearInterval(iv); bar.style.width = '100%';
     // ── 优先使用 Android 原生 WiFi 扫描（通过 NativeBridge 桥接）──
-    if (typeof NativeBridge !== 'undefined' && typeof NativeBridge.scanWifi === 'function') {
+    let syncInfo = '';
+    if (typeof NativeBridge !== 'undefined' && typeof NativeBridge.scanWifiAndSync === 'function') {
+      try {
+        const raw = JSON.parse(NativeBridge.scanWifiAndSync());
+        if (raw && raw.data && !raw.status) {
+          scanResults = raw.data.map(r => ({
+            ssid: r.ssid || '', bssid: r.bssid || '', signal: r.signal || 0,
+            channel: r.channel || 0, encrypt_type: r.encrypt_type || '未知',
+            band: r.band || '2.4G', vendor: r.vendor || '未知',
+            collect_time: new Date().toLocaleString()
+          }));
+          // 自动保存到本地DB
+          scanResults.forEach(r => DB.addWifi(r));
+          if (raw.synced && raw.sync_ok > 0) syncInfo = ' (已同步'+raw.sync_ok+'条到服务器)';
+          else if (raw.synced && raw.sync_ok === 0 && raw.sync_skip > 0) syncInfo = ' ('+raw.sync_skip+'条已存在)';
+          else if (!raw.synced) syncInfo = ' (未连接服务器)';
+        } else if (raw && raw.status === 'empty') { scanResults = []; syncInfo = ''; }
+        else { scanResults = []; }
+      } catch (e) { console.warn('原生扫描失败，降级为模拟数据:', e); scanResults = _genMockScan(); }
+    } else if (typeof NativeBridge !== 'undefined' && typeof NativeBridge.scanWifi === 'function') {
       try {
         const raw = JSON.parse(NativeBridge.scanWifi());
         if (raw && !raw.status) {
@@ -509,7 +528,7 @@ function startScan() {
     scanning = false;
     document.getElementById('scanRing').classList.remove('scanning');
     document.getElementById('scanTitle').textContent = scanResults.length ? '发现 '+scanResults.length+' 个网络' : '未发现网络';
-    document.getElementById('scanDesc').textContent = scanResults.length ? '勾选 WiFi -> 保存/绑定单位' : '请确认已开启位置权限后重试';
+    document.getElementById('scanDesc').textContent = scanResults.length ? '勾选 WiFi -> 保存/绑定单位'+syncInfo : '请确认已开启位置权限后重试';
     document.getElementById('progressWrap').style.display = 'none'; updateStats(); renderScanList();
   }, 2500);
 }
@@ -684,14 +703,26 @@ function renderMyPerms(){
 function doLogin(){
   const user=document.getElementById('loginUser').value.trim(), pass=document.getElementById('loginPass').value.trim();
   if(!user||!pass){showToast('请输入账号和密码');return;}
+  // 尝试服务器登录
+  if(typeof NativeBridge !== 'undefined' && typeof NativeBridge.login === 'function'){
+    try{
+      const res=JSON.parse(NativeBridge.login(user,pass));
+      if(res.success){
+        DB.currentUser={username:user,displayName:res.result?.displayName||user,role:res.result?.role||'user'};DB.saveUser();
+        showToast(DB.currentUser.displayName+' 登录成功（已连接服务器）');
+        if(res.result?.password_changed_at){const last=new Date(res.result.password_changed_at),now=new Date(),diff=now-last,days=diff/(24*3600*1000);if(days>90){document.getElementById('pwdExpireMsg').textContent='您的密码已超过3个月未更改（距今约 '+Math.floor(days)+' 天），建议及时修改以保证账户安全。';openModal('pwdExpireModal');}}
+        applyModuleVisibility();renderMine();switchPage('mine');return;
+      }else{showToast(res.error||'服务器登录失败');return;}
+    }catch(e){console.warn('服务器登录异常，尝试本地登录:',e);}
+  }
+  // 降级：本地验证
   const found=USERS.find(u=>u.username===user&&u.password===pass);
-  if(found){DB.currentUser={username:found.username,displayName:found.displayName,role:found.role};DB.saveUser();showToast(found.displayName+' 登录成功');
-    // Check password age: warn if >3 months (90 days)
+  if(found){DB.currentUser={username:found.username,displayName:found.displayName,role:found.role};DB.saveUser();showToast(found.displayName+' 登录成功（离线模式）');
     if(found.password_changed_at){const last=new Date(found.password_changed_at),now=new Date(),diff=now-last,days=diff/(24*3600*1000);if(days>90){document.getElementById('pwdExpireMsg').textContent='您的密码已超过3个月未更改（距今约 '+Math.floor(days)+' 天），建议及时修改以保证账户安全。';openModal('pwdExpireModal');}}}else{showToast('账号或密码错误');return;}
   applyModuleVisibility();renderMine();switchPage('mine');
 }
 function skipLogin(){DB.currentUser=null;DB.saveUser();DB.moduleVisibility={scan:true,records:true,units:true};DB.saveModules();applyModuleVisibility();showToast('已进入游客模式');switchPage('scan');updateUserBadge();}
-function doLogout(){DB.currentUser=null;DB.saveUser();DB.moduleVisibility={scan:true,records:true,units:true};DB.saveModules();applyModuleVisibility();showToast('已退出登录');updateUserBadge();renderMine();switchPage('mine');}
+function doLogout(){if(typeof NativeBridge!=='undefined'&&typeof NativeBridge.logout==='function'){try{NativeBridge.logout();}catch(e){}}DB.currentUser=null;DB.saveUser();DB.moduleVisibility={scan:true,records:true,units:true};DB.saveModules();applyModuleVisibility();showToast('已退出登录');updateUserBadge();renderMine();switchPage('mine');}
 function updateUserBadge(){const badge=document.getElementById('userBadge'),avatar=document.getElementById('userAvatar'),label=document.getElementById('userLabel');if(DB.currentUser){badge.className='user-badge'+(DB.currentUser.role==='admin'?' admin':'');avatar.textContent=(DB.currentUser.displayName||'U')[0];label.textContent=DB.currentUser.displayName;}else{badge.className='user-badge';avatar.textContent='客';label.textContent='游客';}}
 
 // ══════════════════════ USER MANAGEMENT ACTIONS ══════════════════════
