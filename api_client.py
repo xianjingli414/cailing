@@ -42,6 +42,7 @@ def is_logged_in():
 # ── HTTP 请求封装 ──────────────────────────────────────────
 
 def _request(method, path, data=None, files=None):
+    global _auth_token
     """
     统一HTTP请求
     method: GET/POST/PUT/DELETE
@@ -88,7 +89,6 @@ def _request(method, path, data=None, files=None):
             status = resp.status
             # 提取Set-Cookie中的token
             set_cookie = resp.headers.get("Set-Cookie", "")
-            global _auth_token
             if "cailing_token=" in set_cookie:
                 import re
                 m = re.search(r"cailing_token=([^;]+)", set_cookie)
