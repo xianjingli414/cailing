@@ -216,12 +216,18 @@ def _hide_kivy_surface():
 
         # 备选：遍历 Activity 的 view hierarchy 找到 SurfaceView 并隐藏
         try:
-            content = mActivity.findViewById(0x01020002)  # android.R.id.content
+            R_id = autoclass('com.cailing.R$id')
+            content_id = R_id.content
+        except Exception:
+            content_id = 0x01020002  # android.R.id.content 回退值
+
+        try:
+            content = mActivity.findViewById(content_id)
             if content and isinstance(content, ViewGroup):
                 for i in range(content.getChildCount()):
                     child = content.getChildAt(i)
                     class_name = child.getClass().getName()
-                    if 'SurfaceView' in class_name or 'SDL' in class_name:
+                    if 'SurfaceView' in class_name or 'SDL' in class_name or 'Surface' in class_name:
                         child.setVisibility(View.INVISIBLE)
                         Logger.info('[Cailing] Found and hid: ' + class_name)
         except Exception as e:
