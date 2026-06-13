@@ -759,17 +759,40 @@ function updateUserBadge(){const badge=document.getElementById('userBadge'),avat
 
 // ══════════════════════ USER MANAGEMENT ACTIONS ══════════════════════
 function showAddUser(){document.getElementById('addUserTitle').textContent='添加用户';['newUserDisplay','newUserName','newUserPass'].forEach(id=>document.getElementById(id).value='');openModal('addUserModal');}
-function submitAddUser(){
+async function submitAddUser(){
   const display=document.getElementById('newUserDisplay').value.trim(),name=document.getElementById('newUserName').value.trim(),pass=document.getElementById('newUserPass').value.trim();
   if(!display||!name||!pass){showToast('所有字段为必填');return;}
   if(pass.length<4){showToast('密码至少4位');return;}
   if(USERS.find(u=>u.username===name)){showToast('该账号已存在');return;}
+  // 优先通过 Flask API 创建用户到服务器
+  try{
+    const resp=await fetch('/api/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({display_name:display,username:name,password:pass})});
+    const res=await resp.json();
+    if(res.success){
+      USERS.push({username:name,password:pass,role:'user',displayName:display,password_changed_at:new Date().toISOString()});
+      USER_PERMS[name]={...GRANULAR_PERMS_DEFAULT};
+      saveUsers();savePerms();
+      closeModal('addUserModal');renderUserList();showToast('用户「'+display+'」已创建（已同步服务器）');return;
+    }else{showToast(res.error||res.message||'创建失败');return;}
+  }catch(e){console.warn('Flask API 创建用户失败，仅本地创建:',e);}
+  // 降级：仅本地创建
   USERS.push({username:name,password:pass,role:'user',displayName:display,password_changed_at:new Date().toISOString()});
   USER_PERMS[name] = {...GRANULAR_PERMS_DEFAULT};
   saveUsers(); savePerms();
-  closeModal('addUserModal'); renderUserList(); showToast('用户「'+display+'」已创建');
+  closeModal('addUserModal'); renderUserList(); showToast('用户「'+display+'」已创建（仅本地）');
 }
-function deleteUser(username){if(!confirm('确认删除用户 '+username+'？'))return;USERS=USERS.filter(u=>u.username!==username);delete USER_PERMS[username];saveUsers();savePerms();renderUserList();showToast('用户已删除');}
+async function deleteUser(username){
+  if(!confirm('确认删除用户 '+username+'？'))return;
+  // 优先通过 Flask API 从服务器删除
+  try{
+    const resp=await fetch('/api/users/'+username,{method:'DELETE'});
+    const res=await resp.json();
+    if(res.success){showToast('用户已删除（已同步服务器）');}
+    else{showToast(res.error||'服务器删除失败，仅本地删除');}
+  }catch(e){console.warn('Flask API 删除用户失败，仅本地删除:',e);}
+  // 本地也删除
+  USERS=USERS.filter(u=>u.username!==username);delete USER_PERMS[username];saveUsers();savePerms();renderUserList();
+}
 
 let _editingPermUser = null;
 function editUserPerms(username){
@@ -796,11 +819,15 @@ function renderPermEditForm(perms){
   document.getElementById('editPermGroups').innerHTML=html;
 }
 function editPermToggle(btn){btn.classList.toggle('on');}
-function saveUserPerms(){
+async function saveUserPerms(){
   if(!_editingPermUser)return;
   const perms={};
   document.querySelectorAll('#editPermGroups .toggle-sw').forEach(btn=>{perms[btn.dataset.permKey]=btn.classList.contains('on');});
   USER_PERMS[_editingPermUser]=perms;savePerms();
+  // 同步到服务器
+  try{
+    await fetch('/api/users/'+_editingPermUser+'/perms',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(perms)});
+  }catch(e){console.warn('权限同步到服务器失败:',e);}
   closeModal('editPermModal');renderUserList();
   if(DB.currentUser&&DB.currentUser.username===_editingPermUser)renderMine();
   showToast('权限已保存');
@@ -813,16 +840,28 @@ function showPwdChange(){
   ['oldPwd','newPwd','confirmPwd'].forEach(id=>document.getElementById(id).value='');
   openModal('pwdChangeModal');
 }
-function submitPwdChange(){
+async function submitPwdChange(){
   const old=document.getElementById('oldPwd').value.trim(), pwd=document.getElementById('newPwd').value.trim(), cfm=document.getElementById('confirmPwd').value.trim();
   if(!old||!pwd||!cfm){showToast('所有字段为必填');return;}
   if(pwd.length<4){showToast('新密码至少4位');return;}
   if(pwd!==cfm){showToast('两次新密码不一致');return;}
+  if(old===pwd){showToast('新密码不能与当前密码相同');return;}
+  // 优先通过 Flask API 修改服务器密码
+  try{
+    const resp=await fetch('/api/users/'+DB.currentUser.username+'/password',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({old_password:old,new_password:pwd})});
+    const res=await resp.json();
+    if(res.success){
+      // 同步到本地
+      const u=USERS.find(x=>x.username===DB.currentUser.username);
+      if(u){u.password=pwd;u.password_changed_at=new Date().toISOString();saveUsers();}
+      closeModal('pwdChangeModal');showToast('密码修改成功！（已同步服务器）');return;
+    }else{showToast(res.error||res.message||'服务器修改失败');return;}
+  }catch(e){console.warn('Flask API 修改密码失败，仅本地修改:',e);}
+  // 降级：仅本地修改
   const u=USERS.find(x=>x.username===DB.currentUser.username);
   if(!u||u.password!==old){showToast('当前密码错误');return;}
-  if(old===pwd){showToast('新密码不能与当前密码相同');return;}
   u.password=pwd;u.password_changed_at=new Date().toISOString();saveUsers();
-  closeModal('pwdChangeModal');showToast('密码修改成功！');
+  closeModal('pwdChangeModal');showToast('密码修改成功！（仅本地）');
 }
 function skipPwdChange(){closeModal('pwdExpireModal');}
 function goToPwdChange(){closeModal('pwdExpireModal');showPwdChange();}
