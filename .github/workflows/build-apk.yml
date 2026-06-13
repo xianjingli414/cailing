@@ -8,7 +8,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
     - uses: actions/checkout@v4
@@ -36,62 +36,103 @@ jobs:
       run: |
         rm -rf ~/.buildozer ~/.android
 
-    - name: Build APK (first pass - initializes p4a)
+    - name: Build APK (first pass - initializes p4a and creates dist)
       run: |
         yes | buildozer -v android debug 2>&1 | tee build.log
 
-    - name: Patch and rebuild
+    - name: Patch p4a source + dist and rebuild
       run: |
-        set -x  # 开启调试输出
+        set -ex
 
         P4A_DIR=$(find ~/.buildozer/android/platform -name "python-for-android" -type d 2>/dev/null | head -1)
         echo "P4A_DIR=$P4A_DIR"
 
-        # ── 1. Patch AndroidManifest permissions in p4a template ──
+        if [ -z "$P4A_DIR" ]; then
+          echo "ERROR: p4a directory not found!"
+          exit 1
+        fi
+
+        # ══════════════════════════════════════════════════
+        # 1. 覆盖 p4a 模板中的 PythonActivity.java（完整文件替换，不用sed）
+        # ══════════════════════════════════════════════════
+        PA_TEMPLATE="$P4A_DIR/pythonforandroid/bootstraps/webview/build/src/main/java/org/kivy/android/PythonActivity.java"
+        if [ -f "$PA_TEMPLATE" ]; then
+          echo "Overwriting p4a template PythonActivity.java with patched version"
+          cp -f source/java/org/kivy/android/PythonActivity.java "$PA_TEMPLATE"
+          echo "Verify WifiBridge in template:"
+          grep -c "WifiBridge" "$PA_TEMPLATE"
+        else
+          echo "WARNING: p4a template PythonActivity.java not found at $PA_TEMPLATE"
+        fi
+
+        # ══════════════════════════════════════════════════
+        # 2. 复制 WifiBridge.java 到 p4a 模板目录
+        # ══════════════════════════════════════════════════
+        if [ -f "$PA_TEMPLATE" ]; then
+          WIFI_DST="$(dirname $PA_TEMPLATE)/WifiBridge.java"
+          echo "Copying WifiBridge.java to $WIFI_DST"
+          cp -f source/java/org/kivy/android/WifiBridge.java "$WIFI_DST"
+          ls -la "$WIFI_DST"
+        fi
+
+        # ══════════════════════════════════════════════════
+        # 3. 同时覆盖 dist 目录中的 PythonActivity.java（双保险）
+        # ══════════════════════════════════════════════════
+        DIST_DIR=$(find .buildozer/android/platform/build-*/dists/cailing -maxdepth 0 -type d 2>/dev/null | head -1)
+        if [ -n "$DIST_DIR" ]; then
+          echo "Found dist directory: $DIST_DIR"
+          DIST_PA="$DIST_DIR/src/main/java/org/kivy/android/PythonActivity.java"
+          if [ -f "$DIST_PA" ]; then
+            echo "Overwriting dist PythonActivity.java with patched version"
+            cp -f source/java/org/kivy/android/PythonActivity.java "$DIST_PA"
+            echo "Verify WifiBridge in dist:"
+            grep -c "WifiBridge" "$DIST_PA"
+          fi
+          DIST_WIFI="$(dirname $DIST_PA)/WifiBridge.java"
+          echo "Copying WifiBridge.java to dist: $DIST_WIFI"
+          cp -f source/java/org/kivy/android/WifiBridge.java "$DIST_WIFI"
+          ls -la "$DIST_WIFI"
+        else
+          echo "WARNING: dist directory not found (will be regenerated from template)"
+        fi
+
+        # ══════════════════════════════════════════════════
+        # 4. Patch AndroidManifest permissions in p4a template
+        # ══════════════════════════════════════════════════
         MANIFEST_TEMPLATE="$P4A_DIR/pythonforandroid/bootstraps/webview/build/templates/AndroidManifest.tmpl.xml"
         if [ -f "$MANIFEST_TEMPLATE" ] && ! grep -q "ACCESS_FINE_LOCATION" "$MANIFEST_TEMPLATE"; then
           sed -i '/uses-permission.*INTERNET/a\    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />\n    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />' "$MANIFEST_TEMPLATE"
           echo "Permissions injected into template"
         fi
 
-        # ── 2. Patch PythonActivity.java in p4a template ──
-        PA_SRC="$P4A_DIR/pythonforandroid/bootstraps/webview/build/src/main/java/org/kivy/android/PythonActivity.java"
-        if [ -f "$PA_SRC" ]; then
-          echo "Found PythonActivity.java template"
-
-          # 复制WifiBridge.java到同目录
-          cp source/java/org/kivy/android/WifiBridge.java "$(dirname $PA_SRC)/"
-          ls -la "$(dirname $PA_SRC)/WifiBridge.java"
-
-          # 添加import
-          sed -i 's/^import org.renpy.android.ResourceManager;/import org.kivy.android.WifiBridge;\nimport org.renpy.android.ResourceManager;/' "$PA_SRC"
-
-          # 添加成员变量
-          sed -i 's/public static PythonActivity mActivity = null;/public static PythonActivity mActivity = null;\n    public static WifiBridge mWifiBridge = null;/' "$PA_SRC"
-
-          # 在setDomStorageEnabled后注入WifiBridge初始化 + 允许本地文件访问
-          sed -i 's/mWebView.getSettings().setDomStorageEnabled(true);/mWebView.getSettings().setDomStorageEnabled(true);\n            mWebView.getSettings().setAllowFileAccessFromFileURLs(true);\n            mWebView.getSettings().setAllowUniversalAccessFromFileURLs(true);\n            mWifiBridge = new WifiBridge(PythonActivity.mActivity);\n            mWebView.addJavascriptInterface(mWifiBridge, "WifiBridge");/' "$PA_SRC"
-
-          echo "PythonActivity.java template patched"
-          grep -c "WifiBridge" "$PA_SRC"
-        else
-          echo "WARNING: PythonActivity.java template not found"
+        # ══════════════════════════════════════════════════
+        # 5. 也 patch dist 中的 AndroidManifest.xml（双保险）
+        # ══════════════════════════════════════════════════
+        if [ -n "$DIST_DIR" ] && [ -f "$DIST_DIR/templates/AndroidManifest.tmpl.xml" ]; then
+          if ! grep -q "ACCESS_FINE_LOCATION" "$DIST_DIR/templates/AndroidManifest.tmpl.xml"; then
+            sed -i '/uses-permission.*INTERNET/a\    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />\n    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />' "$DIST_DIR/templates/AndroidManifest.tmpl.xml"
+            echo "Permissions injected into dist template"
+          fi
         fi
 
-        # ── 3. 清除已构建的dist，强制从patched模板重建 ──
+        # ══════════════════════════════════════════════════
+        # 6. 删除旧的APK，重新构建
+        # ══════════════════════════════════════════════════
         rm -f bin/*.apk
-        rm -rf .buildozer/android/platform/build-*/dists/cailing
-
-        # 重新构建（这次会用patched模板生成新的dist）
         yes | buildozer -v android debug 2>&1 | tee -a build.log
 
-    - name: Verify APK
+    - name: Verify APK contents
       if: always()
       run: |
         APK=$(find bin/ -name "*.apk" -type f 2>/dev/null | head -1)
         if [ -n "$APK" ]; then
+          echo "=== APK found: $APK ==="
           echo "=== Checking classes.dex for WifiBridge ==="
           unzip -p "$APK" classes.dex 2>/dev/null | strings | grep -i "WifiBridge" && echo "✅ WifiBridge FOUND!" || echo "❌ WifiBridge NOT found"
+          echo "=== Checking classes.dex for scanWifi ==="
+          unzip -p "$APK" classes.dex 2>/dev/null | strings | grep -i "scanWifi" && echo "✅ scanWifi FOUND!" || echo "❌ scanWifi NOT found"
+          echo "=== Checking classes.dex for addJavascriptInterface ==="
+          unzip -p "$APK" classes.dex 2>/dev/null | strings | grep -i "addJavascriptInterface" && echo "✅ addJavascriptInterface FOUND!" || echo "❌ addJavascriptInterface NOT found"
           echo "=== Checking permissions ==="
           unzip -p "$APK" AndroidManifest.xml 2>/dev/null | strings | grep -i "ACCESS_\|WIFI\|LOCATION\|INTERNET"
         else
