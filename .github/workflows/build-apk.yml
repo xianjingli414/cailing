@@ -36,72 +36,54 @@ jobs:
       run: |
         rm -rf ~/.buildozer ~/.android
 
-    - name: Build APK (first pass)
+    - name: Build APK (first pass - initializes p4a)
       run: |
         yes | buildozer -v android debug 2>&1 | tee build.log
 
     - name: Patch and rebuild
       run: |
-        # ── 1. Patch AndroidManifest permissions ──
+        set -x  # 开启调试输出
+
         P4A_DIR=$(find ~/.buildozer/android/platform -name "python-for-android" -type d 2>/dev/null | head -1)
+        echo "P4A_DIR=$P4A_DIR"
+
+        # ── 1. Patch AndroidManifest permissions in p4a template ──
         MANIFEST_TEMPLATE="$P4A_DIR/pythonforandroid/bootstraps/webview/build/templates/AndroidManifest.tmpl.xml"
         if [ -f "$MANIFEST_TEMPLATE" ] && ! grep -q "ACCESS_FINE_LOCATION" "$MANIFEST_TEMPLATE"; then
           sed -i '/uses-permission.*INTERNET/a\    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />\n    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />' "$MANIFEST_TEMPLATE"
-          echo "Permissions injected"
+          echo "Permissions injected into template"
         fi
 
-        # ── 2. 找到构建产物目录中的PythonActivity.java ──
-        # 关键：直接修改已生成的dist目录中的文件，而不是p4a源码模板
-        DIST_DIR=$(find .buildozer/android/platform/build-*/dists/cailing -type d 2>/dev/null | head -1)
-        if [ -z "$DIST_DIR" ]; then
-          echo "ERROR: dist directory not found"
-          exit 1
+        # ── 2. Patch PythonActivity.java in p4a template ──
+        PA_SRC="$P4A_DIR/pythonforandroid/bootstraps/webview/build/src/main/java/org/kivy/android/PythonActivity.java"
+        if [ -f "$PA_SRC" ]; then
+          echo "Found PythonActivity.java template"
+
+          # 复制WifiBridge.java到同目录
+          cp source/java/org/kivy/android/WifiBridge.java "$(dirname $PA_SRC)/"
+          ls -la "$(dirname $PA_SRC)/WifiBridge.java"
+
+          # 添加import
+          sed -i 's/^import org.renpy.android.ResourceManager;/import org.kivy.android.WifiBridge;\nimport org.renpy.android.ResourceManager;/' "$PA_SRC"
+
+          # 添加成员变量
+          sed -i 's/public static PythonActivity mActivity = null;/public static PythonActivity mActivity = null;\n    public static WifiBridge mWifiBridge = null;/' "$PA_SRC"
+
+          # 在setDomStorageEnabled后注入WifiBridge初始化 + 允许本地文件访问
+          sed -i 's/mWebView.getSettings().setDomStorageEnabled(true);/mWebView.getSettings().setDomStorageEnabled(true);\n            mWebView.getSettings().setAllowFileAccessFromFileURLs(true);\n            mWebView.getSettings().setAllowUniversalAccessFromFileURLs(true);\n            mWifiBridge = new WifiBridge(PythonActivity.mActivity);\n            mWebView.addJavascriptInterface(mWifiBridge, "WifiBridge");/' "$PA_SRC"
+
+          echo "PythonActivity.java template patched"
+          grep -c "WifiBridge" "$PA_SRC"
+        else
+          echo "WARNING: PythonActivity.java template not found"
         fi
-        echo "Dist dir: $DIST_DIR"
 
-        PYTHON_ACTIVITY="$DIST_DIR/src/main/java/org/kivy/android/PythonActivity.java"
-        if [ ! -f "$PYTHON_ACTIVITY" ]; then
-          echo "ERROR: PythonActivity.java not found"
-          find "$DIST_DIR" -name "PythonActivity.java" 2>/dev/null
-          exit 1
-        fi
-        echo "Found PythonActivity.java: $PYTHON_ACTIVITY"
+        # ── 3. 清除已构建的dist，强制从patched模板重建 ──
+        rm -f bin/*.apk
+        rm -rf .buildozer/android/platform/build-*/dists/cailing
 
-        # 2a. 复制WifiBridge.java到同目录
-        WIFI_DIR="$(dirname $PYTHON_ACTIVITY)"
-        cp source/java/org/kivy/android/WifiBridge.java "$WIFI_DIR/"
-        echo "WifiBridge.java copied to $WIFI_DIR"
-        ls -la "$WIFI_DIR/WifiBridge.java"
-
-        # 2b. 修改PythonActivity.java
-        # 添加 import
-        sed -i '/^import org.renpy.android.ResourceManager;$/a\import org.kivy.android.WifiBridge;' "$PYTHON_ACTIVITY"
-
-        # 添加成员变量
-        sed -i '/public static PythonActivity mActivity = null;/a\    public static WifiBridge mWifiBridge = null;' "$PYTHON_ACTIVITY"
-
-        # 在setDomStorageEnabled后注入WifiBridge初始化
-        sed -i '/mWebView.getSettings().setDomStorageEnabled(true);/a\            mWebView.getSettings().setAllowFileAccessFromFileURLs(true);\n            mWebView.getSettings().setAllowUniversalAccessFromFileURLs(true);\n            mWifiBridge = new WifiBridge(PythonActivity.mActivity);\n            mWebView.addJavascriptInterface(mWifiBridge, "WifiBridge");' "$PYTHON_ACTIVITY"
-
-        echo "PythonActivity.java patched. Verifying..."
-        grep -c "WifiBridge" "$PYTHON_ACTIVITY" || echo "WARNING: WifiBridge not found in patched file"
-        grep "addJavascriptInterface" "$PYTHON_ACTIVITY" || echo "WARNING: addJavascriptInterface not found"
-
-        # ── 3. 只重新运行Gradle构建（不重新运行整个buildozer流程） ──
-        cd "$DIST_DIR"
-        echo "Running Gradle build..."
-        ./gradlew assembleDebug 2>&1 || { echo "Gradle build failed"; exit 1; }
-        cd -
-
-        # 复制APK到bin目录
-        mkdir -p bin
-        cp "$DIST_DIR/build/outputs/apk/debug/cailing-debug.apk" bin/ || true
-        # 重命名
-        APK=$(find bin/ -name "cailing-debug.apk" 2>/dev/null | head -1)
-        if [ -n "$APK" ]; then
-          mv "$APK" "bin/cailing-1.0.0-arm64-v8a_armeabi-v7a-debug.apk"
-        fi
-        ls -la bin/
+        # 重新构建（这次会用patched模板生成新的dist）
+        yes | buildozer -v android debug 2>&1 | tee -a build.log
 
     - name: Verify APK
       if: always()
