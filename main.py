@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-采灵 v10.1 — Flask + WebView Bootstrap 方案（功能修复版）
+采灵 v11.0 — Flask + WebView Bootstrap 方案（WiFi扫描修复版）
 
-修复 v10.0 的问题：
-1. 权限请求未弹出 → 适配 webview bootstrap 的 Activity 类名
-2. test 用户无法登录 → 修复登录 API 返回格式匹配
-3. 密码修改和用户删除 → 新增用户管理 API 路由
+修复 v10.x 的问题：
+1. WiFi 扫描不起作用 → 改为读取系统缓存的扫描结果，不再依赖 startScan()
+2. 权限请求 → 使用 ContextCompat.checkSelfPermission 检查权限
+3. 增加定时刷新 WiFi 列表功能
 """
 
 import os
@@ -13,6 +13,7 @@ import sys
 import json
 import traceback
 import threading
+import time
 
 from flask import Flask, jsonify, request, send_from_directory
 
@@ -30,38 +31,83 @@ except ImportError:
 SERVER_URL = os.environ.get("CAILING_SERVER", "http://121.4.28.216:8080")
 PORT = int(os.environ.get("CAILING_PORT", "5000"))
 
-# ── 权限请求（Android）──
-_perms_requested = False
+# ── 权限状态缓存 ──
+_last_permission_check = 0
+_permission_granted = False
+
+def _check_android_permission(perm_name):
+    """检查 Android 权限是否已授予"""
+    try:
+        from jnius import autoclass
+        Context = autoclass('android.content.Context')
+        PythonActivity = autoclass('org.kivy.android.PythonActivity')
+        activity = PythonActivity.mActivity
+        if not activity:
+            return False
+        # 使用 ContextCompat.checkSelfPermission（兼容所有 Android 版本）
+        try:
+            ContextCompat = autoclass('androidx.core.content.ContextCompat')
+            result = ContextCompat.checkSelfPermission(activity, perm_name)
+            return result == 0  # PERMISSION_GRANTED = 0
+        except Exception:
+            # 降级：直接用 Context.checkSelfPermission（API 23+）
+            try:
+                result = activity.checkSelfPermission(perm_name)
+                return result == 0
+            except Exception:
+                return False
+    except Exception:
+        return False
+
 
 def _request_android_permissions():
     """请求 Android 运行时权限（通过 UI 线程）"""
-    global _perms_requested
-    if _perms_requested or not IS_ANDROID:
-        return
-    _perms_requested = True
+    try:
+        from jnius import autoclass
+        PythonActivity = autoclass('org.kivy.android.PythonActivity')
+        activity = PythonActivity.mActivity
+        if not activity:
+            print('[Cailing] mActivity is null, cannot request permissions')
+            return
 
-    def _do_request():
-        try:
-            from jnius import autoclass
-            activity = autoclass('org.kivy.android.PythonActivity').mActivity
-            if activity:
-                # 在 UI 线程上调用 requestPermissions
-                activity.runOnUiThread(lambda: activity.requestPermissions([
+        def _do_request():
+            try:
+                activity.requestPermissions([
                     'android.permission.ACCESS_FINE_LOCATION',
                     'android.permission.ACCESS_COARSE_LOCATION',
                     'android.permission.ACCESS_WIFI_STATE',
                     'android.permission.CHANGE_WIFI_STATE',
-                ]))
-                print('[Cailing] Permissions requested via UI thread')
-            else:
-                print('[Cailing] mActivity is null, cannot request permissions')
-        except Exception as e:
-            print('[Cailing] Permission request failed: ' + str(e))
+                ])
+                print('[Cailing] Permissions requested')
+            except Exception as e:
+                print('[Cailing] Permission request failed: ' + str(e))
 
-    # 在子线程中延迟请求（等 Activity 完全初始化）
-    t = threading.Timer(2.0, _do_request)
-    t.daemon = True
-    t.start()
+        # 在 UI 线程上调用
+        activity.runOnUiThread(_do_request)
+    except Exception as e:
+        print('[Cailing] Permission setup failed: ' + str(e))
+
+
+def _ensure_permissions():
+    """确保权限已授予，如果没有则请求"""
+    global _last_permission_check, _permission_granted
+    now = time.time()
+    # 每 30 秒最多检查一次权限
+    if now - _last_permission_check < 30 and _permission_granted:
+        return True
+    _last_permission_check = now
+
+    fine_location = _check_android_permission('android.permission.ACCESS_FINE_LOCATION')
+    wifi_state = _check_android_permission('android.permission.ACCESS_WIFI_STATE')
+
+    if fine_location and wifi_state:
+        _permission_granted = True
+        return True
+
+    # 权限不足，请求权限
+    _permission_granted = False
+    _request_android_permissions()
+    return False
 
 
 # ══════════════════════════════════════════════════════════
@@ -86,14 +132,16 @@ def static_files(path):
 
 @app.route('/api/wifi/scan', methods=['POST'])
 def api_wifi_scan():
-    """WiFi 扫描"""
+    """WiFi 扫描 — 读取系统缓存的扫描结果"""
     try:
         from wifi_scanner import _scan_android
-        r = _scan_android()
+        max_results = request.get_json(silent=True).get('max_results', 10) if request.is_json else 10
+        r = _scan_android(max_results=max_results)
         if not r:
-            return jsonify({"status": "empty", "message": "未扫描到WiFi"})
+            return jsonify({"status": "empty", "message": "未扫描到WiFi，请确认已授予位置权限且WiFi已开启"})
         return jsonify(r)
     except Exception as e:
+        traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)})
 
 
@@ -103,9 +151,10 @@ def api_wifi_scan_and_sync():
     try:
         from wifi_scanner import _scan_android
         import api_client
-        r = _scan_android()
+        max_results = request.get_json(silent=True).get('max_results', 10) if request.is_json else 10
+        r = _scan_android(max_results=max_results)
         if not r:
-            return jsonify({"status": "empty", "message": "未扫描到WiFi"})
+            return jsonify({"status": "empty", "message": "未扫描到WiFi，请确认已授予位置权限且WiFi已开启"})
         sync_ok = sync_skip = 0
         synced = False
         if api_client.is_logged_in():
@@ -119,6 +168,7 @@ def api_wifi_scan_and_sync():
             "sync_ok": sync_ok, "sync_skip": sync_skip
         })
     except Exception as e:
+        traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)})
 
 
@@ -465,7 +515,6 @@ def api_export():
 def api_request_permissions():
     """前端触发权限请求"""
     try:
-        _perms_requested = False  # 重置标记允许重新请求
         _request_android_permissions()
         return jsonify({"success": True})
     except Exception as e:
@@ -476,19 +525,19 @@ def api_request_permissions():
 def api_check_permissions():
     """检查位置权限是否已授予"""
     try:
-        from jnius import autoclass
-        activity = autoclass('org.kivy.android.PythonActivity').mActivity
-        if not activity:
-            return jsonify({"granted": False, "error": "Activity not found"})
+        fine_location = _check_android_permission('android.permission.ACCESS_FINE_LOCATION')
+        wifi_state = _check_android_permission('android.permission.ACCESS_WIFI_STATE')
+        coarse_location = _check_android_permission('android.permission.ACCESS_COARSE_LOCATION')
 
-        granted = True
         missing = []
-        for perm in ['android.permission.ACCESS_FINE_LOCATION', 'android.permission.ACCESS_COARSE_LOCATION']:
-            result = activity.checkCurrentPermission(perm)
-            if not result:
-                granted = False
-                missing.append(perm)
+        if not fine_location:
+            missing.append('android.permission.ACCESS_FINE_LOCATION')
+        if not coarse_location:
+            missing.append('android.permission.ACCESS_COARSE_LOCATION')
+        if not wifi_state:
+            missing.append('android.permission.ACCESS_WIFI_STATE')
 
+        granted = len(missing) == 0
         return jsonify({"granted": granted, "missing": missing})
     except Exception as e:
         return jsonify({"granted": False, "error": str(e)})
@@ -499,12 +548,16 @@ def api_check_permissions():
 # ══════════════════════════════════════════════════════════
 
 def main():
-    print('[Cailing] === v10.1 Flask Server ===')
+    print('[Cailing] === v11.0 Flask Server ===')
     print(f'[Cailing] IS_ANDROID={IS_ANDROID}')
 
-    # Android 权限请求
+    # Android 权限请求（延迟3秒，等 Activity 完全初始化）
     if IS_ANDROID:
-        _request_android_permissions()
+        def _delayed_request():
+            time.sleep(3.0)
+            _request_android_permissions()
+        t = threading.Thread(target=_delayed_request, daemon=True)
+        t.start()
 
     # 启动 Flask（阻塞）
     print(f'[Cailing] Starting Flask on http://127.0.0.1:{PORT}')

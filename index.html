@@ -187,7 +187,7 @@
       <svg viewBox="0 0 24 24"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="#fff"/></svg>
     </div>
     <h2 id="scanTitle">点击扫描 WiFi</h2>
-    <p id="scanDesc">发现周围所有无线接入点</p>
+    <p id="scanDesc">读取系统WiFi列表，按信号强度排序</p>
     <div class="progress-bar-wrap" id="progressWrap" style="display:none"><div class="progress-bar" id="progressBar" style="width:0%"></div></div>
   </div>
   <div class="stats-strip">
@@ -203,7 +203,7 @@
     <div class="filter-chip" onclick="setScanFilter('saved',this)">已保存</div>
   </div>
   <div class="card card-last" id="wifiListCard">
-    <div class="empty" id="wifiEmpty"><svg viewBox="0 0 24 24"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1"/></svg><p>点击上方圆圈扫描周围 WiFi</p></div>
+    <div class="empty" id="wifiEmpty"><svg viewBox="0 0 24 24"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1"/></svg><p>点击上方圆圈读取系统WiFi列表</p></div>
     <div id="wifiList"></div>
   </div>
 </div>
@@ -480,21 +480,49 @@ function applyModuleVisibility() {
 
 // ══════════════════════ SCAN ══════════════════════
 let scanFilter = 'all', scanResults = [], scanning = false, currentWifi = null, selectedBssids = new Set(), scanResultMap = {};
+let _autoRefreshTimer = null, _autoRefreshInterval = 15000; // 15秒自动刷新
 
 function setScanFilter(f, el) { scanFilter = f; document.querySelectorAll('#filterRow .filter-chip').forEach(c => c.classList.remove('active')); el.classList.add('active'); renderScanList(); }
+
+async function _ensurePermissions() {
+  // 检查权限是否已授予
+  try {
+    const resp = await fetch('/api/check-permissions');
+    const data = await resp.json();
+    if (data.granted) return true;
+    // 权限未授予，请求权限
+    if (data.missing && data.missing.length > 0) {
+      await fetch('/api/request-permissions', {method:'POST'});
+      // 等待用户操作
+      await new Promise(r => setTimeout(r, 2000));
+      // 再次检查
+      const resp2 = await fetch('/api/check-permissions');
+      const data2 = await resp2.json();
+      return data2.granted;
+    }
+  } catch(e) { console.warn('Permission check failed:', e); }
+  return true; // 非Android环境默认通过
+}
+
 async function startScan() {
   if (scanning) return;
+  // 先检查/请求权限
+  const permOk = await _ensurePermissions();
+  if (!permOk) {
+    showToast('需要位置权限才能扫描WiFi，请在设置中授予权限');
+    return;
+  }
   scanning = true; scanResults = []; selectedBssids.clear();
   document.getElementById('scanRing').classList.add('scanning');
-  document.getElementById('scanTitle').textContent = '扫描中...'; document.getElementById('scanDesc').textContent = '正在探测周围无线信号';
+  document.getElementById('scanTitle').textContent = '扫描中...'; document.getElementById('scanDesc').textContent = '正在读取系统WiFi扫描结果';
   document.getElementById('progressWrap').style.display = 'block'; document.getElementById('wifiEmpty').style.display = 'none'; document.getElementById('wifiList').innerHTML = '';
-  let progress = 0; const bar = document.getElementById('progressBar'), iv = setInterval(() => { progress = Math.min(progress + Math.random()*15, 90); bar.style.width = progress+'%'; }, 200);
-  await new Promise(r => setTimeout(r, 2500));
+  let progress = 0; const bar = document.getElementById('progressBar'), iv = setInterval(() => { progress = Math.min(progress + Math.random()*25, 90); bar.style.width = progress+'%'; }, 150);
+  await new Promise(r => setTimeout(r, 1200));
   clearInterval(iv); bar.style.width = '100%';
   let syncInfo = '';
   try {
-    // 优先通过本地 Flask API 扫描（webview bootstrap 模式）
-    const resp = await fetch('/api/wifi/scan-and-sync', {method:'POST'});
+    // 优先通过本地 Flask API 扫描（读取系统缓存的WiFi扫描结果）
+    const resp = await fetch('/api/wifi/scan-and-sync', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({max_results:10})});
     const raw = await resp.json();
     if (raw && raw.data && !raw.status) {
       scanResults = raw.data.map(r => ({
@@ -544,8 +572,46 @@ async function startScan() {
   scanning = false;
   document.getElementById('scanRing').classList.remove('scanning');
   document.getElementById('scanTitle').textContent = scanResults.length ? '发现 '+scanResults.length+' 个网络' : '未发现网络';
-  document.getElementById('scanDesc').textContent = scanResults.length ? '勾选 WiFi -> 保存/绑定单位'+syncInfo : '请确认已开启位置权限后重试';
+  document.getElementById('scanDesc').textContent = scanResults.length ? '每15秒自动刷新 · 勾选WiFi -> 保存/绑定单位'+syncInfo : '请确认已授予位置权限且WiFi已开启，点击重试';
   document.getElementById('progressWrap').style.display = 'none'; updateStats(); renderScanList();
+  // 启动自动刷新（仅当有扫描结果时）
+  startAutoRefresh();
+}
+
+async function _refreshScan() {
+  // 静默刷新WiFi列表（不显示扫描动画）
+  if (scanning) return;
+  try {
+    const resp = await fetch('/api/wifi/scan-and-sync', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({max_results:10})});
+    const raw = await resp.json();
+    if (raw && raw.data && !raw.status) {
+      scanResults = raw.data.map(r => ({
+        ssid: r.ssid || '', bssid: r.bssid || '', signal: r.signal || 0,
+        channel: r.channel || 0, encrypt_type: r.encrypt_type || '未知',
+        band: r.band || '2.4G', vendor: r.vendor || '未知',
+        collect_time: new Date().toLocaleString()
+      }));
+      scanResults.forEach(r => DB.addWifi(r));
+      if (raw.synced && raw.sync_ok > 0) {
+        document.getElementById('scanDesc').textContent = '每15秒自动刷新 · 勾选WiFi -> 保存/绑定单位 (已同步'+raw.sync_ok+'条)';
+      }
+    } else if (raw && raw.status === 'empty') {
+      scanResults = [];
+    }
+  } catch(e) { console.warn('自动刷新失败:', e); }
+  document.getElementById('scanTitle').textContent = scanResults.length ? '发现 '+scanResults.length+' 个网络' : '未发现网络';
+  if (!scanResults.length) {
+    document.getElementById('scanDesc').textContent = '请确认已授予位置权限且WiFi已开启';
+  }
+  updateStats(); renderScanList();
+}
+
+function startAutoRefresh() {
+  stopAutoRefresh();
+  _autoRefreshTimer = setInterval(_refreshScan, _autoRefreshInterval);
+}
+function stopAutoRefresh() {
+  if (_autoRefreshTimer) { clearInterval(_autoRefreshTimer); _autoRefreshTimer = null; }
 }
 function _genMockScan() {
   const rnd3 = () => (Math.floor(Math.random()*256)).toString(16).padStart(2,'0').toUpperCase();

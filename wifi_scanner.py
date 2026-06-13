@@ -111,7 +111,17 @@ def _scan_windows() -> list:
 # Android 扫描（通过 jnius 调用 WifiManager）
 # ══════════════════════════════════════════════════════════
 
-def _scan_android() -> list:
+def _scan_android(max_results=10):
+    """
+    Android WiFi 扫描 — 读取系统已缓存的扫描结果，按信号强度排序取前 N 条。
+    
+    不主动调用 startScan()（Android 9+ 需要位置权限且位置服务必须开启才能触发扫描），
+    而是直接读取 WifiManager.getScanResults() 获取系统最近一次扫描的结果。
+    Android 系统会自动在后台周期性扫描 WiFi，所以即使不主动触发，也能获取到数据。
+    
+    同时还会获取当前连接的 WiFi 信息（只需 ACCESS_WIFI_STATE 权限），
+    作为备用数据源。
+    """
     results = []
     try:
         from jnius import autoclass, cast
@@ -120,29 +130,131 @@ def _scan_android() -> list:
         PythonActivity = autoclass("org.kivy.android.PythonActivity")
         activity = PythonActivity.mActivity
 
+        if not activity:
+            print("[Android WiFi Scan] Error: mActivity is null")
+            return results
+
         wifi_service = activity.getSystemService(Context.WIFI_SERVICE)
         WifiManager = autoclass("android.net.wifi.WifiManager")
         wifi_mgr = cast(WifiManager, wifi_service)
 
-        wifi_mgr.startScan()
-        time.sleep(1)  # 等待扫描完成
-        scan_results = wifi_mgr.getScanResults()
+        # ── 方法1: 读取系统缓存的扫描结果 ──
+        # 不需要主动调用 startScan()，系统后台会自动扫描
+        # Android 6.0+ 需要 ACCESS_FINE_LOCATION 权限才能获取 SSID/BSSID
+        # 但即使没有位置权限，getScanResults() 仍可能返回部分结果
+        try:
+            # 尝试触发一次扫描（静默失败即可，不影响读取缓存结果）
+            try:
+                wifi_mgr.startScan()
+            except Exception:
+                pass  # 静默忽略，某些 ROM 可能不允许 app 触发扫描
 
-        for r in scan_results:
-            freq = r.frequency
-            ch = _channel_from_freq(freq)
-            band = "5G" if ch > 14 else ("2.4G" if ch > 0 else "2.4G")
-            results.append({
-                "ssid":         str(r.SSID) if r.SSID else "<Hidden>",
-                "bssid":        str(r.BSSID).upper(),
-                "signal":        int(r.level),
-                "channel":       ch,
-                "encrypt_type": "WPA/WPA2" if r.capabilities else "开放",
-                "band":          band,
-                "vendor":        get_vendor(str(r.BSSID)),
-            })
+            scan_results = wifi_mgr.getScanResults()
+            if scan_results:
+                print(f"[Android WiFi Scan] getScanResults returned {len(scan_results)} results")
+                seen_bssids = set()
+                for r in scan_results:
+                    bssid = str(r.BSSID).upper() if r.BSSID else ""
+                    if not bssid or bssid in seen_bssids:
+                        continue
+                    seen_bssids.add(bssid)
+                    freq = r.frequency
+                    ch = _channel_from_freq(freq)
+                    band = "5G" if ch > 14 else ("2.4G" if ch > 0 else "2.4G")
+                    ssid = str(r.SSID) if r.SSID else "<Hidden>"
+                    # 处理加密类型
+                    caps = str(r.capabilities) if r.capabilities else ""
+                    if "WPA3" in caps:
+                        enc = "WPA3"
+                    elif "WPA2" in caps:
+                        enc = "WPA2"
+                    elif "WPA" in caps:
+                        enc = "WPA/WPA2"
+                    elif "WEP" in caps:
+                        enc = "WEP"
+                    else:
+                        enc = "开放"
+                    results.append({
+                        "ssid":         ssid,
+                        "bssid":        bssid,
+                        "signal":       int(r.level),
+                        "channel":      ch,
+                        "encrypt_type": enc,
+                        "band":         band,
+                        "vendor":       get_vendor(bssid),
+                    })
+                # 按信号强度排序（level 越大信号越强）
+                results.sort(key=lambda x: x["signal"], reverse=True)
+        except Exception as e:
+            print(f"[Android WiFi Scan] getScanResults error: {e}")
+
+        # ── 方法2: 读取当前连接的 WiFi 信息（作为补充）──
+        # WifiInfo 只需要 ACCESS_WIFI_STATE 权限，不需要位置权限
+        try:
+            wifi_info = wifi_mgr.getConnectionInfo()
+            if wifi_info:
+                conn_bssid = str(wifi_info.getBSSID()).upper() if wifi_info.getBSSID() else ""
+                conn_ssid = str(wifi_info.getSSID()) if wifi_info.getSSID() else ""
+                # Android 8.0+ 返回的 SSID 可能带引号
+                if conn_ssid.startswith('"') and conn_ssid.endswith('"'):
+                    conn_ssid = conn_ssid[1:-1]
+                # 如果当前连接的 WiFi 不在扫描结果中，补充添加
+                if conn_bssid and conn_bssid != "00:00:00:00:00:00":
+                    if not any(r["bssid"] == conn_bssid for r in results):
+                        conn_rssi = wifi_info.getRssi()
+                        conn_freq = wifi_info.getFrequency() if hasattr(wifi_info, 'getFrequency') else 0
+                        ch = _channel_from_freq(conn_freq) if conn_freq else 0
+                        band = "5G" if ch > 14 else "2.4G"
+                        results.append({
+                            "ssid":         conn_ssid or "<Connected>",
+                            "bssid":        conn_bssid,
+                            "signal":       int(conn_rssi),
+                            "channel":      ch,
+                            "encrypt_type": "WPA2",
+                            "band":         band,
+                            "vendor":       get_vendor(conn_bssid),
+                        })
+                        print(f"[Android WiFi Scan] Added connected WiFi: {conn_ssid} ({conn_bssid})")
+        except Exception as e:
+            print(f"[Android WiFi Scan] getConnectionInfo error: {e}")
+
+        # ── 方法3: 通过 WifiConfiguration 读取已保存的网络（作为额外补充）──
+        try:
+            # 需要 ACCESS_WIFI_STATE 权限
+            configured = wifi_mgr.getConfiguredNetworks()
+            if configured:
+                for net in configured:
+                    try:
+                        net_ssid = str(net.SSID) if net.SSID else ""
+                        if net_ssid.startswith('"') and net_ssid.endswith('"'):
+                            net_ssid = net_ssid[1:-1]
+                        if net_ssid and not any(r["ssid"] == net_ssid for r in results):
+                            # 已保存但不在扫描结果中的网络
+                            results.append({
+                                "ssid":         net_ssid,
+                                "bssid":        "SAVED_" + net_ssid[:8],
+                                "signal":       -90,  # 信号未知，标记弱信号
+                                "channel":      0,
+                                "encrypt_type": "已保存",
+                                "band":         "2.4G",
+                                "vendor":       "未知",
+                            })
+                    except Exception:
+                        pass
+                print(f"[Android WiFi Scan] getConfiguredNetworks added saved networks")
+        except Exception as e:
+            # Android 10+ 不再允许获取 configured networks（返回空列表）
+            print(f"[Android WiFi Scan] getConfiguredNetworks error (expected on Android 10+): {e}")
+
+        # 取信号最强的前 max_results 条
+        results.sort(key=lambda x: x["signal"], reverse=True)
+        results = results[:max_results]
+        print(f"[Android WiFi Scan] Final results: {len(results)} networks")
+
     except Exception as e:
         print(f"[Android WiFi Scan Error] {e}")
+        import traceback
+        traceback.print_exc()
     return results
 
 
@@ -150,11 +262,13 @@ def _scan_android() -> list:
 # 统一入口
 # ══════════════════════════════════════════════════════════
 
-def scan_wifi() -> list:
+def scan_wifi(max_results=10) -> list:
     """
     跨平台 WiFi 扫描。
     Windows  → netsh
-    Android  → jnius/WifiManager
+    Android  → jnius/WifiManager（读取系统缓存扫描结果）
+    
+    max_results: Android 模式下返回的最大结果数（按信号强度排序）
     """
     system = platform.system()
     if system == "Windows":
@@ -164,7 +278,7 @@ def scan_wifi() -> list:
         # 尝试导入 jnius 来判断是否在 Android 上
         try:
             import jnius  # noqa: F401
-            return _scan_android()
+            return _scan_android(max_results=max_results)
         except ImportError:
             pass
     return []
