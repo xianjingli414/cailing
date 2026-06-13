@@ -59,34 +59,43 @@ jobs:
           fi
         fi
 
-        # ── 2. Patch PythonActivity.java - 添加WifiBridge ──
-        PYTHON_ACTIVITY="$P4A_DIR/pythonforandroid/bootstraps/webview/build/src/main/java/org/kivy/android/PythonActivity.java"
-        if [ -f "$PYTHON_ACTIVITY" ]; then
-          echo "Patching PythonActivity.java..."
+        # ── 2. Patch PythonActivity.java (p4a源码中的模板) ──
+        PYTHON_ACTIVITY_SRC="$P4A_DIR/pythonforandroid/bootstraps/webview/build/src/main/java/org/kivy/android/PythonActivity.java"
+        if [ -f "$PYTHON_ACTIVITY_SRC" ]; then
+          echo "Patching PythonActivity.java source template..."
 
           # 2a. 复制WifiBridge.java到同目录
-          cp source/java/org/kivy/android/WifiBridge.java "$(dirname $PYTHON_ACTIVITY)/"
-          echo "WifiBridge.java copied"
+          cp source/java/org/kivy/android/WifiBridge.java "$(dirname $PYTHON_ACTIVITY_SRC)/"
+          echo "WifiBridge.java copied to p4a source"
 
-          # 2b. 在PythonActivity.java中添加WifiBridge的import和初始化代码
+          # 2b. 修改PythonActivity.java
           # 添加 import 语句
-          sed -i '/^import org.renpy.android.ResourceManager;$/a\import org.kivy.android.WifiBridge;' "$PYTHON_ACTIVITY"
+          sed -i '/^import org.renpy.android.ResourceManager;$/a\import org.kivy.android.WifiBridge;' "$PYTHON_ACTIVITY_SRC"
 
           # 添加 WifiBridge 成员变量
-          sed -i '/public static PythonActivity mActivity = null;/a\    public static WifiBridge mWifiBridge = null;' "$PYTHON_ACTIVITY"
+          sed -i '/public static PythonActivity mActivity = null;/a\    public static WifiBridge mWifiBridge = null;' "$PYTHON_ACTIVITY_SRC"
 
-          # 在 mWebView.getSettings().setDomStorageEnabled(true); 之后添加 addJavascriptInterface
-          # 同时也添加 setAllowFileAccessFromFileURLs 以便本地文件也能访问
-          sed -i '/mWebView.getSettings().setDomStorageEnabled(true);/a\            mWebView.getSettings().setAllowFileAccessFromFileURLs(true);\n            mWebView.getSettings().setAllowUniversalAccessFromFileURLs(true);\n            // 注册 WifiBridge 到 WebView\n            mWifiBridge = new WifiBridge(PythonActivity.mActivity);\n            mWebView.addJavascriptInterface(mWifiBridge, "WifiBridge");' "$PYTHON_ACTIVITY"
+          # 在 setDomStorageEnabled 后添加 WifiBridge 初始化
+          sed -i '/mWebView.getSettings().setDomStorageEnabled(true);/a\            mWebView.getSettings().setAllowFileAccessFromFileURLs(true);\n            mWebView.getSettings().setAllowUniversalAccessFromFileURLs(true);\n            mWifiBridge = new WifiBridge(PythonActivity.mActivity);\n            mWebView.addJavascriptInterface(mWifiBridge, "WifiBridge");' "$PYTHON_ACTIVITY_SRC"
 
-          echo "PythonActivity.java patched with WifiBridge"
-          # 验证
-          grep -c "WifiBridge" "$PYTHON_ACTIVITY"
+          echo "PythonActivity.java patched"
+          grep -c "WifiBridge" "$PYTHON_ACTIVITY_SRC"
         else
-          echo "WARNING: PythonActivity.java not found at $PYTHON_ACTIVITY"
+          echo "WARNING: PythonActivity.java not found"
         fi
 
-        # ── 3. 清除缓存重新构建 ──
+        # ── 3. 同时 patch 已生成的构建目录中的 PythonActivity.java ──
+        # p4a构建时会从模板复制到构建目录，需要在构建前确保模板已被修改
+        # 查找已生成的构建目录中的 PythonActivity.java
+        BUILD_DIR=$(find .buildozer/android/platform/build-*/dists/cailing -name "PythonActivity.java" 2>/dev/null | head -1)
+        if [ -n "$BUILD_DIR" ]; then
+          echo "Also patching built PythonActivity.java: $BUILD_DIR"
+          # 用已修改的模板覆盖构建目录中的文件
+          cp "$PYTHON_ACTIVITY_SRC" "$BUILD_DIR"
+          cp "$(dirname $PYTHON_ACTIVITY_SRC)/WifiBridge.java" "$(dirname $BUILD_DIR)/"
+        fi
+
+        # ── 4. 清除缓存重新构建 ──
         rm -f bin/*.apk
         rm -rf .buildozer/android/platform/build-*/dists/cailing/build
         rm -rf .buildozer/android/platform/build-*/build/cailing
@@ -104,10 +113,8 @@ jobs:
         if [ -n "$APK" ]; then
           echo "=== Checking permissions ==="
           unzip -p "$APK" AndroidManifest.xml 2>/dev/null | strings | grep -i "permission\|ACCESS_\|WIFI\|LOCATION\|INTERNET" || echo "Could not extract manifest strings"
-          echo "=== Checking for WifiBridge ==="
-          unzip -l "$APK" 2>/dev/null | grep -i "wifibridge\|PythonActivity" || echo "No WifiBridge class found in APK"
-          echo "=== Checking classes.dex ==="
-          unzip -p "$APK" classes.dex 2>/dev/null | strings | grep -i "WifiBridge" || echo "WifiBridge not found in classes.dex"
+          echo "=== Checking classes.dex for WifiBridge ==="
+          unzip -p "$APK" classes.dex 2>/dev/null | strings | grep -i "WifiBridge" && echo "WifiBridge FOUND in APK!" || echo "WifiBridge NOT found in classes.dex"
         else
           echo "No APK found to verify"
         fi
