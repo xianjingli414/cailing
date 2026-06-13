@@ -485,28 +485,35 @@ let _autoRefreshTimer = null, _autoRefreshInterval = 15000; // 15秒自动刷新
 function setScanFilter(f, el) { scanFilter = f; document.querySelectorAll('#filterRow .filter-chip').forEach(c => c.classList.remove('active')); el.classList.add('active'); renderScanList(); }
 
 async function _ensurePermissions() {
-  // 检查权限是否已授予
+  // 优先使用WifiBridge（Java原生）检查和请求权限
+  if (window.WifiBridge) {
+    try {
+      if (!window.WifiBridge.hasLocationPermission()) {
+        window.WifiBridge.requestLocationPermission();
+        await new Promise(r => setTimeout(r, 2500));
+        return window.WifiBridge.hasLocationPermission();
+      }
+      return true;
+    } catch(e) { console.warn('WifiBridge权限检查失败:', e); }
+  }
+  // 降级：通过Flask API检查
   try {
     const resp = await fetch('/api/check-permissions');
     const data = await resp.json();
     if (data.granted) return true;
-    // 权限未授予，请求权限
     if (data.missing && data.missing.length > 0) {
       await fetch('/api/request-permissions', {method:'POST'});
-      // 等待用户操作
       await new Promise(r => setTimeout(r, 2000));
-      // 再次检查
       const resp2 = await fetch('/api/check-permissions');
       const data2 = await resp2.json();
       return data2.granted;
     }
-  } catch(e) { console.warn('Permission check failed:', e); }
-  return true; // 非Android环境默认通过
+  } catch(e) { console.warn('权限检查失败:', e); }
+  return true;
 }
 
 async function startScan() {
   if (scanning) return;
-  // 先检查/请求权限
   const permOk = await _ensurePermissions();
   if (!permOk) {
     showToast('需要位置权限才能扫描WiFi，请在设置中授予权限');
@@ -514,95 +521,133 @@ async function startScan() {
   }
   scanning = true; scanResults = []; selectedBssids.clear();
   document.getElementById('scanRing').classList.add('scanning');
-  document.getElementById('scanTitle').textContent = '扫描中...'; document.getElementById('scanDesc').textContent = '正在读取系统WiFi扫描结果';
+  document.getElementById('scanTitle').textContent = '扫描中...'; document.getElementById('scanDesc').textContent = '正在读取系统WiFi列表';
   document.getElementById('progressWrap').style.display = 'block'; document.getElementById('wifiEmpty').style.display = 'none'; document.getElementById('wifiList').innerHTML = '';
   let progress = 0; const bar = document.getElementById('progressBar'), iv = setInterval(() => { progress = Math.min(progress + Math.random()*25, 90); bar.style.width = progress+'%'; }, 150);
   await new Promise(r => setTimeout(r, 1200));
   clearInterval(iv); bar.style.width = '100%';
   let syncInfo = '';
-  try {
-    // 优先通过本地 Flask API 扫描（读取系统缓存的WiFi扫描结果）
-    const resp = await fetch('/api/wifi/scan-and-sync', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({max_results:10})});
-    const raw = await resp.json();
-    if (raw && raw.data && !raw.status) {
-      scanResults = raw.data.map(r => ({
-        ssid: r.ssid || '', bssid: r.bssid || '', signal: r.signal || 0,
-        channel: r.channel || 0, encrypt_type: r.encrypt_type || '未知',
-        band: r.band || '2.4G', vendor: r.vendor || '未知',
-        collect_time: new Date().toLocaleString()
-      }));
-      scanResults.forEach(r => DB.addWifi(r));
-      if (raw.synced && raw.sync_ok > 0) syncInfo = ' (已同步'+raw.sync_ok+'条到服务器)';
-      else if (raw.synced && raw.sync_ok === 0 && raw.sync_skip > 0) syncInfo = ' ('+raw.sync_skip+'条已存在)';
-      else if (!raw.synced) syncInfo = ' (未连接服务器)';
-    } else if (raw && raw.status === 'empty') { scanResults = []; syncInfo = ''; }
-    else { scanResults = []; }
-  } catch(e1) {
-    console.warn('Flask API 扫描失败，尝试 NativeBridge:', e1);
-    // 降级：NativeBridge（兼容旧版 APK）
+  let wifiList = null;
+
+  // ══ 优先级1：WifiBridge（Java原生 addJavascriptInterface）══
+  if (window.WifiBridge && typeof window.WifiBridge.scanWifi === 'function') {
+    try {
+      const rawJson = window.WifiBridge.scanWifi();
+      console.log('[Cailing] WifiBridge.scanWifi() returned:', rawJson ? rawJson.substring(0, 200) : 'null');
+      if (rawJson) {
+        wifiList = JSON.parse(rawJson);
+        // 按信号强度排序，取前10
+        if (Array.isArray(wifiList)) {
+          wifiList.sort((a, b) => (b.signal || 0) - (a.signal || 0));
+          wifiList = wifiList.slice(0, 10);
+        }
+      }
+    } catch(e) { console.warn('WifiBridge扫描失败:', e); wifiList = null; }
+  }
+
+  // ══ 优先级2：Flask API（Python/jnius）══
+  if (!wifiList || wifiList.length === 0) {
+    try {
+      const resp = await fetch('/api/wifi/scan-and-sync', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({max_results:10})});
+      const raw = await resp.json();
+      if (raw && raw.data && !raw.status) {
+        wifiList = raw.data;
+        if (raw.synced && raw.sync_ok > 0) syncInfo = ' (已同步'+raw.sync_ok+'条到服务器)';
+        else if (raw.synced && raw.sync_ok === 0 && raw.sync_skip > 0) syncInfo = ' ('+raw.sync_skip+'条已存在)';
+        else if (!raw.synced) syncInfo = ' (未连接服务器)';
+      } else if (raw && raw.status === 'empty') { wifiList = []; }
+    } catch(e) { console.warn('Flask API扫描失败:', e); }
+  }
+
+  // ══ 优先级3：NativeBridge（旧版兼容）══
+  if (!wifiList || wifiList.length === 0) {
     try {
       if (typeof NativeBridge !== 'undefined' && typeof NativeBridge.scanWifiAndSync === 'function') {
         const raw = JSON.parse(NativeBridge.scanWifiAndSync());
-        if (raw && raw.data && !raw.status) {
-          scanResults = raw.data.map(r => ({
-            ssid: r.ssid || '', bssid: r.bssid || '', signal: r.signal || 0,
-            channel: r.channel || 0, encrypt_type: r.encrypt_type || '未知',
-            band: r.band || '2.4G', vendor: r.vendor || '未知',
-            collect_time: new Date().toLocaleString()
-          }));
-          scanResults.forEach(r => DB.addWifi(r));
-          if (raw.synced && raw.sync_ok > 0) syncInfo = ' (已同步'+raw.sync_ok+'条到服务器)';
-          else if (raw.synced && raw.sync_ok === 0 && raw.sync_skip > 0) syncInfo = ' ('+raw.sync_skip+'条已存在)';
-          else if (!raw.synced) syncInfo = ' (未连接服务器)';
-        } else if (raw && raw.status === 'empty') { scanResults = []; }
-        else { scanResults = []; }
+        if (raw && raw.data && !raw.status) wifiList = raw.data;
       } else if (typeof NativeBridge !== 'undefined' && typeof NativeBridge.scanWifi === 'function') {
         const raw = JSON.parse(NativeBridge.scanWifi());
-        if (raw && !raw.status) {
-          scanResults = raw.map(r => ({
-            ssid: r.ssid || '', bssid: r.bssid || '', signal: r.signal || 0,
-            channel: r.channel || 0, encrypt_type: r.encrypt_type || '未知',
-            band: r.band || '2.4G', vendor: r.vendor || '未知',
-            collect_time: new Date().toLocaleString()
-          }));
-        } else { scanResults = []; }
-      } else { scanResults = _genMockScan(); }
-    } catch(e2) { console.warn('NativeBridge 扫描也失败，使用模拟数据:', e2); scanResults = _genMockScan(); }
+        if (raw && !raw.status) wifiList = raw;
+      }
+    } catch(e) { console.warn('NativeBridge扫描失败:', e); }
   }
+
+  // 格式化结果
+  if (wifiList && wifiList.length > 0) {
+    scanResults = wifiList.map(r => ({
+      ssid: r.ssid || '', bssid: r.bssid || '', signal: r.signal || 0,
+      channel: r.channel || 0, encrypt_type: r.encrypt_type || '未知',
+      band: r.band || '2.4G', vendor: r.vendor || '未知',
+      collect_time: new Date().toLocaleString()
+    }));
+    scanResults.forEach(r => DB.addWifi(r));
+
+    // 通过Flask API同步到服务器
+    try {
+      const syncResp = await fetch('/api/wifi/sync', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({records: scanResults})});
+      const syncData = await syncResp.json();
+      if (syncData.synced && syncData.sync_ok > 0) syncInfo = ' (已同步'+syncData.sync_ok+'条到服务器)';
+      else if (!syncData.synced) syncInfo = ' (未连接服务器)';
+    } catch(e) { console.warn('同步失败:', e); }
+  } else if (wifiList && wifiList.length === 0) {
+    scanResults = [];
+  } else {
+    scanResults = [];
+  }
+
   scanning = false;
   document.getElementById('scanRing').classList.remove('scanning');
   document.getElementById('scanTitle').textContent = scanResults.length ? '发现 '+scanResults.length+' 个网络' : '未发现网络';
   document.getElementById('scanDesc').textContent = scanResults.length ? '每15秒自动刷新 · 勾选WiFi -> 保存/绑定单位'+syncInfo : '请确认已授予位置权限且WiFi已开启，点击重试';
   document.getElementById('progressWrap').style.display = 'none'; updateStats(); renderScanList();
-  // 启动自动刷新（仅当有扫描结果时）
   startAutoRefresh();
 }
 
 async function _refreshScan() {
-  // 静默刷新WiFi列表（不显示扫描动画）
   if (scanning) return;
-  try {
-    const resp = await fetch('/api/wifi/scan-and-sync', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({max_results:10})});
-    const raw = await resp.json();
-    if (raw && raw.data && !raw.status) {
-      scanResults = raw.data.map(r => ({
-        ssid: r.ssid || '', bssid: r.bssid || '', signal: r.signal || 0,
-        channel: r.channel || 0, encrypt_type: r.encrypt_type || '未知',
-        band: r.band || '2.4G', vendor: r.vendor || '未知',
-        collect_time: new Date().toLocaleString()
-      }));
-      scanResults.forEach(r => DB.addWifi(r));
-      if (raw.synced && raw.sync_ok > 0) {
-        document.getElementById('scanDesc').textContent = '每15秒自动刷新 · 勾选WiFi -> 保存/绑定单位 (已同步'+raw.sync_ok+'条)';
+  let wifiList = null;
+
+  // 优先使用WifiBridge
+  if (window.WifiBridge && typeof window.WifiBridge.scanWifi === 'function') {
+    try {
+      const rawJson = window.WifiBridge.scanWifi();
+      if (rawJson) {
+        wifiList = JSON.parse(rawJson);
+        if (Array.isArray(wifiList)) {
+          wifiList.sort((a, b) => (b.signal || 0) - (a.signal || 0));
+          wifiList = wifiList.slice(0, 10);
+        }
       }
-    } else if (raw && raw.status === 'empty') {
-      scanResults = [];
-    }
-  } catch(e) { console.warn('自动刷新失败:', e); }
-  document.getElementById('scanTitle').textContent = scanResults.length ? '发现 '+scanResults.length+' 个网络' : '未发现网络';
-  if (!scanResults.length) {
-    document.getElementById('scanDesc').textContent = '请确认已授予位置权限且WiFi已开启';
+    } catch(e) { console.warn('自动刷新失败:', e); }
   }
+
+  // 降级到Flask API
+  if (!wifiList || wifiList.length === 0) {
+    try {
+      const resp = await fetch('/api/wifi/scan-and-sync', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({max_results:10})});
+      const raw = await resp.json();
+      if (raw && raw.data && !raw.status) wifiList = raw.data;
+    } catch(e) { console.warn('自动刷新失败:', e); }
+  }
+
+  if (wifiList && wifiList.length > 0) {
+    scanResults = wifiList.map(r => ({
+      ssid: r.ssid || '', bssid: r.bssid || '', signal: r.signal || 0,
+      channel: r.channel || 0, encrypt_type: r.encrypt_type || '未知',
+      band: r.band || '2.4G', vendor: r.vendor || '未知',
+      collect_time: new Date().toLocaleString()
+    }));
+    scanResults.forEach(r => DB.addWifi(r));
+    // 同步到服务器
+    try {
+      await fetch('/api/wifi/sync', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({records: scanResults})});
+    } catch(e) {}
+  } else if (wifiList && wifiList.length === 0) {
+    scanResults = [];
+  }
+
+  document.getElementById('scanTitle').textContent = scanResults.length ? '发现 '+scanResults.length+' 个网络' : '未发现网络';
+  if (!scanResults.length) document.getElementById('scanDesc').textContent = '请确认已授予位置权限且WiFi已开启';
   updateStats(); renderScanList();
 }
 

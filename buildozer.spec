@@ -4,7 +4,7 @@ package.name = cailing
 package.domain = com.cailing
 
 source.dir = .
-source.include_exts = py,png,jpg,kv,atlas,html,db,json
+source.include_exts = py,png,jpg,kv,atlas,html,db,json,java
 
 version = 1.0.0
 

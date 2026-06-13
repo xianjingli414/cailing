@@ -41,50 +41,73 @@ jobs:
         yes | buildozer -v android debug 2>&1 | tee build.log
         echo "Build exit code: $?"
 
-    - name: Patch AndroidManifest with permissions and rebuild
+    - name: Patch p4a source and rebuild
       run: |
-        # 找到 p4a webview bootstrap 的 AndroidManifest 模板
         P4A_DIR=$(find ~/.buildozer/android/platform -name "python-for-android" -type d 2>/dev/null | head -1)
-        if [ -n "$P4A_DIR" ]; then
-          MANIFEST_TEMPLATE="$P4A_DIR/pythonforandroid/bootstraps/webview/build/templates/AndroidManifest.tmpl.xml"
-          if [ -f "$MANIFEST_TEMPLATE" ]; then
-            echo "Patching $MANIFEST_TEMPLATE"
-            # 检查是否已经包含 ACCESS_FINE_LOCATION
-            if grep -q "ACCESS_FINE_LOCATION" "$MANIFEST_TEMPLATE"; then
-              echo "Permissions already present, skipping patch"
-            else
-              # 在 INTERNET 权限行后注入额外权限
-              sed -i '/uses-permission.*INTERNET/a\    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />\n    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />' "$MANIFEST_TEMPLATE"
-              echo "Permissions injected. Verifying:"
-              grep "uses-permission" "$MANIFEST_TEMPLATE"
-            fi
-          else
-            echo "WARNING: Manifest template not found at $MANIFEST_TEMPLATE"
-            find "$P4A_DIR" -name "AndroidManifest*" 2>/dev/null || true
+        if [ -z "$P4A_DIR" ]; then
+          echo "ERROR: p4a directory not found"
+          exit 1
+        fi
+        echo "P4A dir: $P4A_DIR"
+
+        # ── 1. Patch AndroidManifest.tmpl.xml - 注入权限 ──
+        MANIFEST_TEMPLATE="$P4A_DIR/pythonforandroid/bootstraps/webview/build/templates/AndroidManifest.tmpl.xml"
+        if [ -f "$MANIFEST_TEMPLATE" ]; then
+          if ! grep -q "ACCESS_FINE_LOCATION" "$MANIFEST_TEMPLATE"; then
+            sed -i '/uses-permission.*INTERNET/a\    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />\n    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />' "$MANIFEST_TEMPLATE"
+            echo "Permissions injected into AndroidManifest"
           fi
-        else
-          echo "WARNING: p4a directory not found"
         fi
 
-        # 清除已生成的 APK 和 gradle 缓存，强制重新生成 AndroidManifest
+        # ── 2. Patch PythonActivity.java - 添加WifiBridge ──
+        PYTHON_ACTIVITY="$P4A_DIR/pythonforandroid/bootstraps/webview/build/src/main/java/org/kivy/android/PythonActivity.java"
+        if [ -f "$PYTHON_ACTIVITY" ]; then
+          echo "Patching PythonActivity.java..."
+
+          # 2a. 复制WifiBridge.java到同目录
+          cp source/java/org/kivy/android/WifiBridge.java "$(dirname $PYTHON_ACTIVITY)/"
+          echo "WifiBridge.java copied"
+
+          # 2b. 在PythonActivity.java中添加WifiBridge的import和初始化代码
+          # 添加 import 语句
+          sed -i '/^import org.renpy.android.ResourceManager;$/a\import org.kivy.android.WifiBridge;' "$PYTHON_ACTIVITY"
+
+          # 添加 WifiBridge 成员变量
+          sed -i '/public static PythonActivity mActivity = null;/a\    public static WifiBridge mWifiBridge = null;' "$PYTHON_ACTIVITY"
+
+          # 在 mWebView.getSettings().setDomStorageEnabled(true); 之后添加 addJavascriptInterface
+          # 同时也添加 setAllowFileAccessFromFileURLs 以便本地文件也能访问
+          sed -i '/mWebView.getSettings().setDomStorageEnabled(true);/a\            mWebView.getSettings().setAllowFileAccessFromFileURLs(true);\n            mWebView.getSettings().setAllowUniversalAccessFromFileURLs(true);\n            // 注册 WifiBridge 到 WebView\n            mWifiBridge = new WifiBridge(PythonActivity.mActivity);\n            mWebView.addJavascriptInterface(mWifiBridge, "WifiBridge");' "$PYTHON_ACTIVITY"
+
+          echo "PythonActivity.java patched with WifiBridge"
+          # 验证
+          grep -c "WifiBridge" "$PYTHON_ACTIVITY"
+        else
+          echo "WARNING: PythonActivity.java not found at $PYTHON_ACTIVITY"
+        fi
+
+        # ── 3. 清除缓存重新构建 ──
         rm -f bin/*.apk
         rm -rf .buildozer/android/platform/build-*/dists/cailing/build
         rm -rf .buildozer/android/platform/build-*/build/cailing
 
-        # 重新构建（这次使用 patch 过的模板）
         yes | buildozer -v android debug 2>&1 | tee -a build.log
         RC=$?
         echo "Final build exit code: $RC"
         ls -laR bin/ || echo "bin/ not found"
         exit $RC
 
-    - name: Verify permissions in APK
+    - name: Verify APK
       if: always()
       run: |
         APK=$(find bin/ -name "*.apk" -type f 2>/dev/null | head -1)
         if [ -n "$APK" ]; then
-          echo "Checking permissions in $APK"
+          echo "=== Checking permissions ==="
           unzip -p "$APK" AndroidManifest.xml 2>/dev/null | strings | grep -i "permission\|ACCESS_\|WIFI\|LOCATION\|INTERNET" || echo "Could not extract manifest strings"
+          echo "=== Checking for WifiBridge ==="
+          unzip -l "$APK" 2>/dev/null | grep -i "wifibridge\|PythonActivity" || echo "No WifiBridge class found in APK"
+          echo "=== Checking classes.dex ==="
+          unzip -p "$APK" classes.dex 2>/dev/null | strings | grep -i "WifiBridge" || echo "WifiBridge not found in classes.dex"
         else
           echo "No APK found to verify"
         fi

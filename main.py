@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-采灵 v11.0 — Flask + WebView Bootstrap 方案（WiFi扫描修复版）
+采灵 v12.0 — Flask + WebView Bootstrap 方案（WifiBridge原生扫描版）
 
-修复 v10.x 的问题：
-1. WiFi 扫描不起作用 → 改为读取系统缓存的扫描结果，不再依赖 startScan()
-2. 权限请求 → 使用 ContextCompat.checkSelfPermission 检查权限
-3. 增加定时刷新 WiFi 列表功能
+核心改动：WiFi扫描通过Java原生WifiBridge（addJavascriptInterface）完成，
+不再依赖Python/jnius调用Android API（v10-v11均因此失败）。
+
+架构：
+- Java层：WifiBridge.java 通过 addJavascriptInterface 注入WebView
+- JS层：直接调用 window.WifiBridge.scanWifi() 获取WiFi列表
+- Python层：接收JS传来的WiFi数据，负责同步到服务器
 """
 
 import os
@@ -475,6 +478,23 @@ def api_users_set_perms(username):
         return jsonify({"success": False, "error": str(e)})
 
 
+@app.route('/api/wifi/sync', methods=['POST'])
+def api_wifi_sync():
+    """接收JS从WifiBridge获取的WiFi数据，同步到服务器"""
+    try:
+        import api_client
+        data = request.get_json(force=True)
+        records = data.get('records', [])
+        if not records:
+            return jsonify({"synced": False, "sync_ok": 0, "sync_skip": 0})
+        if api_client.is_logged_in():
+            sync_ok, sync_skip = api_client.upload_wifi_records(records)
+            return jsonify({"synced": True, "sync_ok": sync_ok, "sync_skip": sync_skip})
+        return jsonify({"synced": False, "sync_ok": 0, "sync_skip": len(records)})
+    except Exception as e:
+        return jsonify({"synced": False, "error": str(e)})
+
+
 # ══════════════════════════════════════════════════════════
 #  API 路由 — 统计 & 导出
 # ══════════════════════════════════════════════════════════
@@ -548,8 +568,9 @@ def api_check_permissions():
 # ══════════════════════════════════════════════════════════
 
 def main():
-    print('[Cailing] === v11.0 Flask Server ===')
+    print('[Cailing] === v12.0 Flask Server ===')
     print(f'[Cailing] IS_ANDROID={IS_ANDROID}')
+    print('[Cailing] WiFi扫描已改用Java原生WifiBridge，JS直接调用window.WifiBridge.scanWifi()')
 
     # Android 权限请求（延迟3秒，等 Activity 完全初始化）
     if IS_ANDROID:
