@@ -12,9 +12,13 @@ version = 1.0.0
 # 不再需要 kivy！Flask 替代 Kivy 做 UI 后端
 requirements = python3,flask,pyjnius
 
-# webview bootstrap（不再用 SDL2，不再有 GL/SurfaceView 冲突）
+# webview bootstrap
 p4a.bootstrap = webview
 p4a.port = 5000
+
+# ── 权限声明（完整格式，包含 android.permission. 前缀）──
+# 必须使用 p4a 权限参数，确保写入 AndroidManifest.xml
+android.permissions = ACCESS_FINE_LOCATION, ACCESS_COARSE_LOCATION, ACCESS_WIFI_STATE, CHANGE_WIFI_STATE, ACCESS_NETWORK_STATE, INTERNET
 
 orientation = portrait
 fullscreen = 0
@@ -24,9 +28,6 @@ allow_screenshots = 1
 android.accept_sdk_license = True
 
 [android]
-# ── WiFi / 位置权限（Android 10+ 扫描 WiFi 必须）──
-android.permissions = ACCESS_FINE_LOCATION, ACCESS_COARSE_LOCATION, ACCESS_WIFI_STATE, CHANGE_WIFI_STATE, ACCESS_NETWORK_STATE, INTERNET
-
 android.api = 33
 android.minapi = 24
 android.ndk = 25b

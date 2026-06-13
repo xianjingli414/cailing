@@ -623,7 +623,7 @@ function setRecordFilter(f,el) { if (!hasPerm('records_filter') && f !== 'all') 
 function renderRecords() {
   document.getElementById('recordsSubtitle').textContent='共 '+DB.wifiRecords.length+' 条记录';
   const q=document.getElementById('recordSearch').value.toLowerCase();
-  let rows=DB.wifiRecords.filter(r=>{if(q&&!r.ssid.toLowerCase().includes(q)&&!r.bssid.toLowerCase().includes(q)) return false; if(recordFilter==='2.4G'&&r.band!=='2.4G') return false; if(recordFilter==='5G'&&r.band!=='5G') return false; if(recordFilter==='bound'&&!r.unit_id) return false; if(recordFilter==='unbound'&&r.unit_id) return false; if(recordFilter==='exported'&&!r.exported) return false; if(recordFilter==='unexported'&&r.exported) return false; return true; });
+  let rows=DB.wifiRecords.filter(r=>{if(q&&!r.ssid.toLowerCase().includes(q)&&!r.bssid.toLowerCase().includes(q)&&!(r.unit_name&&r.unit_name.toLowerCase().includes(q))) return false; if(recordFilter==='2.4G'&&r.band!=='2.4G') return false; if(recordFilter==='5G'&&r.band!=='5G') return false; if(recordFilter==='bound'&&!r.unit_id) return false; if(recordFilter==='unbound'&&r.unit_id) return false; if(recordFilter==='exported'&&!r.exported) return false; if(recordFilter==='unexported'&&r.exported) return false; return true; });
   const list=document.getElementById('recordList');
   if(!rows.length){list.innerHTML='<div class="empty"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg><p>暂无匹配记录</p></div>';document.getElementById('exportCountLabel').textContent='可选择记录后导出';return; }
   document.getElementById('exportCountLabel').textContent='共 '+rows.length+' 条 · 选中 '+selectedRecordIds.size;
