@@ -482,18 +482,38 @@ function applyModuleVisibility() {
 let scanFilter = 'all', scanResults = [], scanning = false, currentWifi = null, selectedBssids = new Set(), scanResultMap = {};
 
 function setScanFilter(f, el) { scanFilter = f; document.querySelectorAll('#filterRow .filter-chip').forEach(c => c.classList.remove('active')); el.classList.add('active'); renderScanList(); }
-function startScan() {
+async function startScan() {
   if (scanning) return;
   scanning = true; scanResults = []; selectedBssids.clear();
   document.getElementById('scanRing').classList.add('scanning');
   document.getElementById('scanTitle').textContent = '扫描中...'; document.getElementById('scanDesc').textContent = '正在探测周围无线信号';
   document.getElementById('progressWrap').style.display = 'block'; document.getElementById('wifiEmpty').style.display = 'none'; document.getElementById('wifiList').innerHTML = '';
   let progress = 0; const bar = document.getElementById('progressBar'), iv = setInterval(() => { progress = Math.min(progress + Math.random()*15, 90); bar.style.width = progress+'%'; }, 200);
-  setTimeout(() => { clearInterval(iv); bar.style.width = '100%';
-    // ── 优先使用 Android 原生 WiFi 扫描（通过 NativeBridge 桥接）──
-    let syncInfo = '';
-    if (typeof NativeBridge !== 'undefined' && typeof NativeBridge.scanWifiAndSync === 'function') {
-      try {
+  await new Promise(r => setTimeout(r, 2500));
+  clearInterval(iv); bar.style.width = '100%';
+  let syncInfo = '';
+  try {
+    // 优先通过本地 Flask API 扫描（webview bootstrap 模式）
+    const resp = await fetch('/api/wifi/scan-and-sync', {method:'POST'});
+    const raw = await resp.json();
+    if (raw && raw.data && !raw.status) {
+      scanResults = raw.data.map(r => ({
+        ssid: r.ssid || '', bssid: r.bssid || '', signal: r.signal || 0,
+        channel: r.channel || 0, encrypt_type: r.encrypt_type || '未知',
+        band: r.band || '2.4G', vendor: r.vendor || '未知',
+        collect_time: new Date().toLocaleString()
+      }));
+      scanResults.forEach(r => DB.addWifi(r));
+      if (raw.synced && raw.sync_ok > 0) syncInfo = ' (已同步'+raw.sync_ok+'条到服务器)';
+      else if (raw.synced && raw.sync_ok === 0 && raw.sync_skip > 0) syncInfo = ' ('+raw.sync_skip+'条已存在)';
+      else if (!raw.synced) syncInfo = ' (未连接服务器)';
+    } else if (raw && raw.status === 'empty') { scanResults = []; syncInfo = ''; }
+    else { scanResults = []; }
+  } catch(e1) {
+    console.warn('Flask API 扫描失败，尝试 NativeBridge:', e1);
+    // 降级：NativeBridge（兼容旧版 APK）
+    try {
+      if (typeof NativeBridge !== 'undefined' && typeof NativeBridge.scanWifiAndSync === 'function') {
         const raw = JSON.parse(NativeBridge.scanWifiAndSync());
         if (raw && raw.data && !raw.status) {
           scanResults = raw.data.map(r => ({
@@ -502,16 +522,13 @@ function startScan() {
             band: r.band || '2.4G', vendor: r.vendor || '未知',
             collect_time: new Date().toLocaleString()
           }));
-          // 自动保存到本地DB
           scanResults.forEach(r => DB.addWifi(r));
           if (raw.synced && raw.sync_ok > 0) syncInfo = ' (已同步'+raw.sync_ok+'条到服务器)';
           else if (raw.synced && raw.sync_ok === 0 && raw.sync_skip > 0) syncInfo = ' ('+raw.sync_skip+'条已存在)';
           else if (!raw.synced) syncInfo = ' (未连接服务器)';
-        } else if (raw && raw.status === 'empty') { scanResults = []; syncInfo = ''; }
+        } else if (raw && raw.status === 'empty') { scanResults = []; }
         else { scanResults = []; }
-      } catch (e) { console.warn('原生扫描失败，降级为模拟数据:', e); scanResults = _genMockScan(); }
-    } else if (typeof NativeBridge !== 'undefined' && typeof NativeBridge.scanWifi === 'function') {
-      try {
+      } else if (typeof NativeBridge !== 'undefined' && typeof NativeBridge.scanWifi === 'function') {
         const raw = JSON.parse(NativeBridge.scanWifi());
         if (raw && !raw.status) {
           scanResults = raw.map(r => ({
@@ -521,16 +538,14 @@ function startScan() {
             collect_time: new Date().toLocaleString()
           }));
         } else { scanResults = []; }
-      } catch (e) { console.warn('原生扫描失败，降级为模拟数据:', e); scanResults = _genMockScan(); }
-    } else {
-      scanResults = _genMockScan();
-    }
-    scanning = false;
-    document.getElementById('scanRing').classList.remove('scanning');
-    document.getElementById('scanTitle').textContent = scanResults.length ? '发现 '+scanResults.length+' 个网络' : '未发现网络';
-    document.getElementById('scanDesc').textContent = scanResults.length ? '勾选 WiFi -> 保存/绑定单位'+syncInfo : '请确认已开启位置权限后重试';
-    document.getElementById('progressWrap').style.display = 'none'; updateStats(); renderScanList();
-  }, 2500);
+      } else { scanResults = _genMockScan(); }
+    } catch(e2) { console.warn('NativeBridge 扫描也失败，使用模拟数据:', e2); scanResults = _genMockScan(); }
+  }
+  scanning = false;
+  document.getElementById('scanRing').classList.remove('scanning');
+  document.getElementById('scanTitle').textContent = scanResults.length ? '发现 '+scanResults.length+' 个网络' : '未发现网络';
+  document.getElementById('scanDesc').textContent = scanResults.length ? '勾选 WiFi -> 保存/绑定单位'+syncInfo : '请确认已开启位置权限后重试';
+  document.getElementById('progressWrap').style.display = 'none'; updateStats(); renderScanList();
 }
 function _genMockScan() {
   const rnd3 = () => (Math.floor(Math.random()*256)).toString(16).padStart(2,'0').toUpperCase();
@@ -700,10 +715,21 @@ function renderMyPerms(){
   }
   document.getElementById('myPermsList').innerHTML=html;
 }
-function doLogin(){
+async function doLogin(){
   const user=document.getElementById('loginUser').value.trim(), pass=document.getElementById('loginPass').value.trim();
   if(!user||!pass){showToast('请输入账号和密码');return;}
-  // 尝试服务器登录
+  // 优先通过本地 Flask API 登录（webview bootstrap 模式）
+  try{
+    const resp=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user,password:pass})});
+    const res=await resp.json();
+    if(res.success){
+      DB.currentUser={username:user,displayName:res.result?.displayName||user,role:res.result?.role||'user'};DB.saveUser();
+      showToast(DB.currentUser.displayName+' 登录成功（已连接服务器）');
+      if(res.result?.password_changed_at){const last=new Date(res.result.password_changed_at),now=new Date(),diff=now-last,days=diff/(24*3600*1000);if(days>90){document.getElementById('pwdExpireMsg').textContent='您的密码已超过3个月未更改（距今约 '+Math.floor(days)+' 天），建议及时修改以保证账户安全。';openModal('pwdExpireModal');}}
+      applyModuleVisibility();renderMine();switchPage('mine');return;
+    }else{showToast(res.error||'服务器登录失败');return;}
+  }catch(e1){console.warn('Flask API 登录失败，尝试 NativeBridge:',e1);}
+  // 降级：NativeBridge（兼容旧版 APK）
   if(typeof NativeBridge !== 'undefined' && typeof NativeBridge.login === 'function'){
     try{
       const res=JSON.parse(NativeBridge.login(user,pass));
@@ -722,7 +748,13 @@ function doLogin(){
   applyModuleVisibility();renderMine();switchPage('mine');
 }
 function skipLogin(){DB.currentUser=null;DB.saveUser();DB.moduleVisibility={scan:true,records:true,units:true};DB.saveModules();applyModuleVisibility();showToast('已进入游客模式');switchPage('scan');updateUserBadge();}
-function doLogout(){if(typeof NativeBridge!=='undefined'&&typeof NativeBridge.logout==='function'){try{NativeBridge.logout();}catch(e){}}DB.currentUser=null;DB.saveUser();DB.moduleVisibility={scan:true,records:true,units:true};DB.saveModules();applyModuleVisibility();showToast('已退出登录');updateUserBadge();renderMine();switchPage('mine');}
+async function doLogout(){
+  // 优先通过本地 Flask API 登出
+  try{await fetch('/api/logout',{method:'POST'});}catch(e){}
+  // 降级：NativeBridge
+  if(typeof NativeBridge!=='undefined'&&typeof NativeBridge.logout==='function'){try{NativeBridge.logout();}catch(e){}}
+  DB.currentUser=null;DB.saveUser();DB.moduleVisibility={scan:true,records:true,units:true};DB.saveModules();applyModuleVisibility();showToast('已退出登录');updateUserBadge();renderMine();switchPage('mine');
+}
 function updateUserBadge(){const badge=document.getElementById('userBadge'),avatar=document.getElementById('userAvatar'),label=document.getElementById('userLabel');if(DB.currentUser){badge.className='user-badge'+(DB.currentUser.role==='admin'?' admin':'');avatar.textContent=(DB.currentUser.displayName||'U')[0];label.textContent=DB.currentUser.displayName;}else{badge.className='user-badge';avatar.textContent='客';label.textContent='游客';}}
 
 // ══════════════════════ USER MANAGEMENT ACTIONS ══════════════════════

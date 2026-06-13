@@ -4,22 +4,24 @@ package.name = cailing
 package.domain = com.cailing
 
 source.dir = .
-source.include_exts = py,png,jpg,kv,atlas,html,db,java
+source.include_exts = py,png,jpg,kv,atlas,html,db,json
 
 version = 1.0.0
 
-# 依赖（pyjnius 已在 Kivy 中自带）
-requirements = python3,kivy,pyjnius
+# ── 关键：使用 webview bootstrap，彻底告别 SDL2/GL ──
+# 不再需要 kivy！Flask 替代 Kivy 做 UI 后端
+requirements = python3,flask,pyjnius
+
+# webview bootstrap（不再用 SDL2，不再有 GL/SurfaceView 冲突）
+p4a.bootstrap = webview
+p4a.port = 5000
 
 orientation = portrait
 fullscreen = 0
 allow_screenshots = 1
 
-# 自动接受 Android SDK 许可证（CI 自动化必需，必须在 [app] 节）
+# 自动接受 Android SDK 许可证
 android.accept_sdk_license = True
-
-# Java 源码（JsBridge 等 — 必须在 [app] 节下）
-android.add_src = source/java
 
 [android]
 # ── WiFi / 位置权限（Android 10+ 扫描 WiFi 必须）──
@@ -36,9 +38,6 @@ android.arch = arm64-v8a
 android.allow_backup = True
 android.stringversion = 1.0.0
 android.version_code = 1
-
-# 启用 AndroidX + Material Components
-android.gradle_dependencies = androidx.appcompat:appcompat:1.6.1,com.google.android.material:material:1.9.0
 
 # 日志级别
 android.logcat_filters = *:S python:D
