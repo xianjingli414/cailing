@@ -32,38 +32,49 @@ jobs:
           zlib1g-dev libncurses-dev \
           cmake libffi-dev libssl-dev
 
-    - name: Initialize buildozer (download p4a)
+    - name: Clean cache
       run: |
-        # 运行 buildozer 让它下载 p4a 和初始化项目
-        # 这会创建 .buildozer 目录和下载 p4a 源码
-        yes | buildozer android debug 2>&1 | tail -20 || true
+        rm -rf ~/.buildozer ~/.android
 
-    - name: Patch AndroidManifest with permissions
+    - name: Build APK (first pass - initializes p4a)
+      run: |
+        yes | buildozer -v android debug 2>&1 | tee build.log
+        echo "Build exit code: $?"
+
+    - name: Patch AndroidManifest with permissions and rebuild
       run: |
         # 找到 p4a webview bootstrap 的 AndroidManifest 模板
         P4A_DIR=$(find ~/.buildozer/android/platform -name "python-for-android" -type d 2>/dev/null | head -1)
-        if [ -z "$P4A_DIR" ]; then
-          echo "ERROR: p4a directory not found"
-          exit 1
+        if [ -n "$P4A_DIR" ]; then
+          MANIFEST_TEMPLATE="$P4A_DIR/pythonforandroid/bootstraps/webview/build/templates/AndroidManifest.tmpl.xml"
+          if [ -f "$MANIFEST_TEMPLATE" ]; then
+            echo "Patching $MANIFEST_TEMPLATE"
+            # 检查是否已经包含 ACCESS_FINE_LOCATION
+            if grep -q "ACCESS_FINE_LOCATION" "$MANIFEST_TEMPLATE"; then
+              echo "Permissions already present, skipping patch"
+            else
+              # 在 INTERNET 权限行后注入额外权限
+              sed -i '/uses-permission.*INTERNET/a\    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />\n    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />' "$MANIFEST_TEMPLATE"
+              echo "Permissions injected. Verifying:"
+              grep "uses-permission" "$MANIFEST_TEMPLATE"
+            fi
+          else
+            echo "WARNING: Manifest template not found at $MANIFEST_TEMPLATE"
+            find "$P4A_DIR" -name "AndroidManifest*" 2>/dev/null || true
+          fi
+        else
+          echo "WARNING: p4a directory not found"
         fi
-        MANIFEST_TEMPLATE="$P4A_DIR/pythonforandroid/bootstraps/webview/build/templates/AndroidManifest.tmpl.xml"
-        if [ ! -f "$MANIFEST_TEMPLATE" ]; then
-          echo "ERROR: Manifest template not found at $MANIFEST_TEMPLATE"
-          find "$P4A_DIR" -name "AndroidManifest*" 2>/dev/null
-          exit 1
-        fi
-        echo "Patching $MANIFEST_TEMPLATE"
-        cat "$MANIFEST_TEMPLATE" | grep -c "uses-permission" || true
-        # 在 INTERNET 权限行后注入额外权限
-        sed -i '/uses-permission.*INTERNET/a\    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />\n    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />' "$MANIFEST_TEMPLATE"
-        echo "Permissions injected. Verifying:"
-        grep "uses-permission" "$MANIFEST_TEMPLATE"
 
-    - name: Build APK
-      run: |
-        yes | buildozer -v android debug 2>&1 | tee build.log
-        RC=${PIPESTATUS[1]}
-        echo "Buildozer exit code: $RC"
+        # 清除已生成的 APK 和 gradle 缓存，强制重新生成 AndroidManifest
+        rm -f bin/*.apk
+        rm -rf .buildozer/android/platform/build-*/dists/cailing/build
+        rm -rf .buildozer/android/platform/build-*/build/cailing
+
+        # 重新构建（这次使用 patch 过的模板）
+        yes | buildozer -v android debug 2>&1 | tee -a build.log
+        RC=$?
+        echo "Final build exit code: $RC"
         ls -laR bin/ || echo "bin/ not found"
         exit $RC
 
@@ -73,7 +84,6 @@ jobs:
         APK=$(find bin/ -name "*.apk" -type f 2>/dev/null | head -1)
         if [ -n "$APK" ]; then
           echo "Checking permissions in $APK"
-          # 使用 aapt dump permissions 检查 APK 权限
           unzip -p "$APK" AndroidManifest.xml 2>/dev/null | strings | grep -i "permission\|ACCESS_\|WIFI\|LOCATION\|INTERNET" || echo "Could not extract manifest strings"
         else
           echo "No APK found to verify"
