@@ -101,7 +101,7 @@ jobs:
         rm -f bin/*.apk
         yes | buildozer -v android debug 2>&1 | tee -a build.log
 
-    - name: Post-build: patch build.gradle and repackage
+    - name: "Post-build: patch build.gradle and repackage"
       run: |
         set -ex
 
