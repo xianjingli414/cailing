@@ -40,75 +40,41 @@ jobs:
       run: |
         yes | buildozer -v android debug 2>&1 | tee build.log
 
-    - name: Diagnose build layout
-      run: |
-        echo "=== .buildozer layout ==="
-        find .buildozer -maxdepth 5 -type d 2>/dev/null | head -40
-        echo ""
-        echo "=== ~/.buildozer layout ==="
-        find ~/.buildozer -maxdepth 5 -type d 2>/dev/null | head -40
-        echo ""
-        echo "=== Find PythonActivity.java everywhere ==="
-        find /home/runner -name "PythonActivity.java" -type f 2>/dev/null
-        echo ""
-        echo "=== Find python-for-android everywhere ==="
-        find /home/runner -name "python-for-android" -type d 2>/dev/null
-
-    - name: Patch p4a source + dist and rebuild
+    - name: Patch files and force Gradle rebuild
       run: |
         set -ex
 
         # ══════════════════════════════════════════════════
-        # 查找p4a目录 — 同时搜索项目目录和home目录
+        # Find p4a directory
         # ══════════════════════════════════════════════════
         P4A_DIR=$(find . ~/.buildozer /home/runner -name "python-for-android" -type d 2>/dev/null | head -1)
         echo "P4A_DIR=$P4A_DIR"
 
         if [ -z "$P4A_DIR" ]; then
           echo "ERROR: p4a directory not found anywhere!"
-          echo "Searching for PythonActivity.java directly..."
-          PA_FOUND=$(find /home/runner -name "PythonActivity.java" -type f 2>/dev/null | head -5)
-          echo "PythonActivity.java locations: $PA_FOUND"
-          # 尝试直接从PythonActivity.java路径推导
-          if [ -n "$PA_FOUND" ]; then
-            P4A_DIR=$(echo "$PA_FOUND" | head -1 | sed 's|/pythonforandroid/.*||')
-            echo "Derived P4A_DIR=$P4A_DIR"
-          fi
-        fi
-
-        if [ -z "$P4A_DIR" ]; then
-          echo "FATAL: Cannot find p4a directory, aborting"
           exit 1
         fi
 
         # ══════════════════════════════════════════════════
-        # 1. 覆盖 p4a 模板中的 PythonActivity.java
+        # 1. Overwrite PythonActivity.java in p4a template
         # ══════════════════════════════════════════════════
         PA_TEMPLATE="$P4A_DIR/pythonforandroid/bootstraps/webview/build/src/main/java/org/kivy/android/PythonActivity.java"
-        echo "PA_TEMPLATE=$PA_TEMPLATE"
         if [ -f "$PA_TEMPLATE" ]; then
-          echo "Overwriting p4a template PythonActivity.java with patched version"
+          echo "Overwriting p4a template PythonActivity.java"
           cp -f source/java/org/kivy/android/PythonActivity.java "$PA_TEMPLATE"
-          echo "Verify WifiBridge in template:"
-          grep -c "WifiBridge" "$PA_TEMPLATE"
-        else
-          echo "WARNING: p4a template PythonActivity.java not found at $PA_TEMPLATE"
-          echo "Listing directory contents:"
-          ls -la "$P4A_DIR/pythonforandroid/bootstraps/webview/build/src/main/java/org/kivy/android/" 2>/dev/null || echo "Directory not found"
+          echo "WifiBridge count in template: $(grep -c 'WifiBridge' "$PA_TEMPLATE")"
         fi
 
         # ══════════════════════════════════════════════════
-        # 2. 复制 WifiBridge.java 到 p4a 模板目录
+        # 2. Copy WifiBridge.java to p4a template directory
         # ══════════════════════════════════════════════════
         if [ -d "$(dirname $PA_TEMPLATE)" ]; then
-          WIFI_DST="$(dirname $PA_TEMPLATE)/WifiBridge.java"
-          echo "Copying WifiBridge.java to $WIFI_DST"
-          cp -f source/java/org/kivy/android/WifiBridge.java "$WIFI_DST"
-          ls -la "$WIFI_DST"
+          cp -f source/java/org/kivy/android/WifiBridge.java "$(dirname $PA_TEMPLATE)/"
+          echo "WifiBridge.java copied to p4a template"
         fi
 
         # ══════════════════════════════════════════════════
-        # 3. 同时覆盖 dist 目录中的 PythonActivity.java（双保险）
+        # 3. Find and patch dist directory
         # ══════════════════════════════════════════════════
         DIST_DIR=$(find . ~/.buildozer /home/runner -path "*/dists/cailing" -type d 2>/dev/null | head -1)
         echo "DIST_DIR=$DIST_DIR"
@@ -116,31 +82,23 @@ jobs:
         if [ -n "$DIST_DIR" ]; then
           DIST_PA="$DIST_DIR/src/main/java/org/kivy/android/PythonActivity.java"
           if [ -f "$DIST_PA" ]; then
-            echo "Overwriting dist PythonActivity.java with patched version"
+            echo "Overwriting dist PythonActivity.java"
             cp -f source/java/org/kivy/android/PythonActivity.java "$DIST_PA"
-            echo "Verify WifiBridge in dist:"
-            grep -c "WifiBridge" "$DIST_PA"
+            echo "WifiBridge count in dist: $(grep -c 'WifiBridge' "$DIST_PA")"
           fi
-          DIST_WIFI="$DIST_DIR/src/main/java/org/kivy/android/WifiBridge.java"
-          echo "Copying WifiBridge.java to dist: $DIST_WIFI"
-          cp -f source/java/org/kivy/android/WifiBridge.java "$DIST_WIFI"
-          ls -la "$DIST_WIFI"
-        else
-          echo "WARNING: dist directory not found (will be regenerated from template)"
+          cp -f source/java/org/kivy/android/WifiBridge.java "$DIST_DIR/src/main/java/org/kivy/android/"
+          echo "WifiBridge.java copied to dist"
         fi
 
         # ══════════════════════════════════════════════════
-        # 4. Patch AndroidManifest permissions in p4a template
+        # 4. Patch AndroidManifest permissions
         # ══════════════════════════════════════════════════
         MANIFEST_TEMPLATE="$P4A_DIR/pythonforandroid/bootstraps/webview/build/templates/AndroidManifest.tmpl.xml"
         if [ -f "$MANIFEST_TEMPLATE" ] && ! grep -q "ACCESS_FINE_LOCATION" "$MANIFEST_TEMPLATE"; then
           sed -i '/uses-permission.*INTERNET/a\    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />\n    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />' "$MANIFEST_TEMPLATE"
-          echo "Permissions injected into template"
+          echo "Permissions injected into p4a template"
         fi
 
-        # ══════════════════════════════════════════════════
-        # 5. 也 patch dist 中的 AndroidManifest.xml（双保险）
-        # ══════════════════════════════════════════════════
         if [ -n "$DIST_DIR" ] && [ -f "$DIST_DIR/templates/AndroidManifest.tmpl.xml" ]; then
           if ! grep -q "ACCESS_FINE_LOCATION" "$DIST_DIR/templates/AndroidManifest.tmpl.xml"; then
             sed -i '/uses-permission.*INTERNET/a\    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />\n    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />' "$DIST_DIR/templates/AndroidManifest.tmpl.xml"
@@ -149,7 +107,18 @@ jobs:
         fi
 
         # ══════════════════════════════════════════════════
-        # 6. 删除旧的APK，重新构建
+        # 5. 关键：删除Gradle构建缓存，强制重新编译Java
+        #    buildozer rebuild会用缓存的dist，Gradle也会增量编译跳过
+        #    所以必须清除Gradle的build目录
+        # ══════════════════════════════════════════════════
+        if [ -n "$DIST_DIR" ]; then
+          echo "Cleaning Gradle build cache in dist..."
+          rm -rf "$DIST_DIR/build"
+          echo "Gradle build cache cleaned"
+        fi
+
+        # ══════════════════════════════════════════════════
+        # 6. 删除旧APK并重新构建
         # ══════════════════════════════════════════════════
         rm -f bin/*.apk
         yes | buildozer -v android debug 2>&1 | tee -a build.log
