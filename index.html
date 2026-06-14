@@ -370,6 +370,20 @@
   </div>
 </div>
 
+<!-- 二次绑定确认弹窗 -->
+<div class="modal-overlay modal-center" id="rebindConfirmModal" style="align-items:center">
+  <div class="modal" onclick="event.stopPropagation()" style="border-radius:16px;max-width:380px;margin:auto">
+    <div style="text-align:center;margin-bottom:16px">
+      <div style="width:56px;height:56px;background:#fff7e6;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;margin-bottom:12px">
+        <svg viewBox="0 0 24 24" style="width:28px;height:28px;fill:var(--warning)"><path d="M12 2L1 21h22L12 2zm0 4.5L19.5 19h-15L12 6.5z"/><circle cx="12" cy="16" r="1.5" fill="var(--warning)"/><rect x="11" y="9" width="2" height="5" fill="var(--warning)"/></svg>
+      </div>
+      <h3 class="modal-title">绑定确认</h3>
+      <p class="modal-subtitle" id="rebindMsg">该WiFi已绑定其他单位，是否确认覆盖原绑定记录？</p>
+    </div>
+    <div class="form-actions"><button class="btn btn-ghost" onclick="cancelRebind()" style="flex:1">放弃</button><button class="btn btn-primary" onclick="confirmRebind()" style="flex:2">确定覆盖</button></div>
+  </div>
+</div>
+
 <!-- 修改密码 -->
 <div class="modal-overlay modal-center" id="pwdChangeModal">
   <div class="modal" onclick="event.stopPropagation()" style="max-width:380px;margin:auto">
@@ -563,15 +577,16 @@ async function startScan() {
 
   // 格式化结果
   if (wifiList && wifiList.length > 0) {
+    // 格式化结果（不自动保存到记录，只有用户手动保存/绑定才入记录）
     scanResults = wifiList.map(r => ({
       ssid: r.ssid || '', bssid: r.bssid || '', signal: r.signal || 0,
       channel: r.channel || 0, encrypt_type: r.encrypt_type || '未知',
       band: r.band || '2.4G', vendor: r.vendor || '未知',
       collect_time: new Date().toLocaleString()
     }));
-    scanResults.forEach(r => DB.addWifi(r));
+    // 注意：不再自动 scanResults.forEach(r => DB.addWifi(r));
 
-    // 通过Flask API同步到服务器
+    // 通过Flask API同步扫描结果到服务器（仅同步原始扫描数据，不写入本地记录库）
     try {
       const syncResp = await fetch('/api/wifi/sync', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({records: scanResults})});
       const syncData = await syncResp.json();
@@ -626,8 +641,8 @@ async function _refreshScan() {
       band: r.band || '2.4G', vendor: r.vendor || '未知',
       collect_time: new Date().toLocaleString()
     }));
-    scanResults.forEach(r => DB.addWifi(r));
-    // 同步到服务器
+    // 不自动保存到记录，只有用户手动保存/绑定才入记录
+    // 同步到服务器（仅同步原始扫描数据）
     try {
       await fetch('/api/wifi/sync', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({records: scanResults})});
     } catch(e) {}
@@ -711,7 +726,44 @@ function updateBatchBar() {
 }
 function batchSave(){if(currentPage!=='scan'||selectedBssids.size===0)return;let saved=0,skip=0;[...selectedBssids].forEach(bssid=>{const r=scanResultMap[bssid];if(r)DB.addWifi({...r})?saved++:skip++;});updateStats();renderScanList();showToast('已保存 '+saved+' 条'+(skip>0?'（'+skip+' 条已存在）':''));}
 function batchBind(){if(currentPage!=='scan'||selectedBssids.size===0||!hasPerm('scan_bind'))return;[...selectedBssids].forEach(bssid=>{const r=scanResultMap[bssid];if(r&&!DB.wifiRecords.find(x=>x.bssid===bssid))DB.addWifi({...r});});updateStats();document.getElementById('bindTitle').textContent='绑定单位';document.getElementById('bindSubtitle').textContent='将 '+selectedBssids.size+' 条 WiFi 统一绑定到：';document.getElementById('bindUnitSearch').value='';renderBindUnitList();openModal('bindUnitModal');}
-function doBind(unitId) { const bssids=[...selectedBssids], cnt=DB.bulkBindByBssid(bssids,unitId); const u=DB.units.find(x=>x.id===unitId); closeModal('bindUnitModal'); selectedBssids.clear(); renderScanList(); showToast('已将 '+cnt+' 条 WiFi 绑定到「'+(u?u.unit_name:'')+'」'); }
+function doBind(unitId) {
+  const bssids=[...selectedBssids];
+  const u=DB.units.find(x=>x.id===unitId);
+  // 检查是否有已绑定的WiFi（二次绑定确认）
+  const alreadyBound = bssids.filter(bssid => {
+    const r = DB.wifiRecords.find(x => x.bssid === bssid);
+    return r && r.unit_id && r.unit_id !== unitId;
+  });
+  if (alreadyBound.length > 0) {
+    // 弹出确认弹窗
+    _pendingBindUnitId = unitId;
+    _pendingBindBssids = bssids;
+    const boundNames = alreadyBound.map(bssid => {
+      const r = DB.wifiRecords.find(x => x.bssid === bssid);
+      return r ? (r.ssid || r.bssid) : bssid;
+    });
+    document.getElementById('rebindMsg').textContent = '以下 ' + alreadyBound.length + ' 条 WiFi 已绑定其他单位：' + boundNames.slice(0, 5).join('、') + (boundNames.length > 5 ? '等' : '') + '。是否确认覆盖原绑定记录？';
+    openModal('rebindConfirmModal');
+    return;
+  }
+  // 无冲突，直接绑定
+  _executeBind(bssids, unitId, u);
+}
+function _executeBind(bssids, unitId, u) {
+  const cnt=DB.bulkBindByBssid(bssids,unitId);
+  closeModal('bindUnitModal');
+  selectedBssids.clear(); renderScanList(); showToast('已将 '+cnt+' 条 WiFi 绑定到「'+(u?u.unit_name:'')+'」');
+}
+let _pendingBindUnitId = null, _pendingBindBssids = [];
+function confirmRebind() {
+  closeModal('rebindConfirmModal');
+  const u = DB.units.find(x => x.id === _pendingBindUnitId);
+  _executeBind(_pendingBindBssids, _pendingBindUnitId, u);
+}
+function cancelRebind() {
+  closeModal('rebindConfirmModal');
+  _pendingBindUnitId = null; _pendingBindBssids = [];
+}
 
 // ══════════════════════ STATS ══════════════════════
 function updateStats() { const today=new Date().toLocaleDateString('zh-CN'); document.getElementById('statTotal').textContent=DB.wifiRecords.length; document.getElementById('statToday').textContent=DB.wifiRecords.filter(r=>r.collect_time&&r.collect_time.startsWith(today)).length; document.getElementById('statUnit').textContent=DB.units.length; }
