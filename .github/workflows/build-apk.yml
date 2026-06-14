@@ -89,7 +89,7 @@ jobs:
         if [ -d "$RES_DIR" ]; then
           # 列出原始图标资源
           echo "=== Original icon resources ==="
-          find "$RES_DIR" \( -name "ic_launcher*" -o -name "icon*" -o -name "ic_launcher_round*" \) | head -30
+          find "$RES_DIR" \( -name "ic_launcher*" -o -name "icon*" -o -name "presplash*" -o -name "ic_launcher_round*" \) | head -30
 
           # 查找AndroidManifest.xml中引用的图标名
           MANIFEST="$DIST_DIR/src/main/AndroidManifest.xml"
@@ -99,48 +99,35 @@ jobs:
             echo "AndroidManifest icon reference: $ICON_REF"
           fi
 
+          # 先删除所有旧图标和presplash文件，避免Duplicate resources错误
+          echo "Removing old icon/presplash files to avoid duplicates..."
+          find "$RES_DIR" \( -name "ic_launcher*" -o -name "ic_launcher_round*" -o -name "presplash*" -o -name "icon*" \) -type f -delete
+
           # 复制自定义图标到各mipmap目录
-          # 无论模板用什么文件名，都替换ic_launcher.png并创建ICON_REF的副本
           for mipmap in mipmap-mdpi mipmap-hdpi mipmap-xhdpi mipmap-xxhdpi mipmap-xxxhdpi; do
             TARGET_DIR="$RES_DIR/$mipmap"
             mkdir -p "$TARGET_DIR"
             if [ -f "source/icons/$mipmap/ic_launcher.png" ]; then
-              # 替换ic_launcher.png
               cp -f "source/icons/$mipmap/ic_launcher.png" "$TARGET_DIR/ic_launcher.png"
-              echo "✅ Replaced $mipmap/ic_launcher.png"
+              echo "✅ Created $mipmap/ic_launcher.png"
 
               # 如果AndroidManifest引用了不同的图标名，也创建对应的文件
               if [ -n "$ICON_REF" ] && [ "$ICON_REF" != "ic_launcher" ]; then
                 cp -f "source/icons/$mipmap/ic_launcher.png" "$TARGET_DIR/${ICON_REF}.png"
                 echo "✅ Also created $mipmap/${ICON_REF}.png"
               fi
-
-              # 也替换可能存在的其他图标变体（ic_launcher_round等）
-              for existing in "$TARGET_DIR"/ic_launcher_round*; do
-                if [ -f "$existing" ]; then
-                  cp -f "source/icons/$mipmap/ic_launcher.png" "$existing"
-                  echo "✅ Replaced $(basename $existing) in $mipmap"
-                fi
-              done
             fi
           done
 
-          # 替换presplash
+          # 替换presplash (只放png，不保留jpg)
           DRAWABLE_DIR="$RES_DIR/drawable"
           mkdir -p "$DRAWABLE_DIR"
           if [ -f "source/icons/drawable/presplash.png" ]; then
             cp -f "source/icons/drawable/presplash.png" "$DRAWABLE_DIR/presplash.png"
-            echo "✅ Replaced drawable/presplash.png"
-            # 也替换可能的presplash变体
-            for existing in "$DRAWABLE_DIR"/presplash*; do
-              if [ -f "$existing" ] && [ "$existing" != "$DRAWABLE_DIR/presplash.png" ]; then
-                cp -f "source/icons/drawable/presplash.png" "$existing"
-                echo "✅ Replaced $(basename $existing) in drawable"
-              fi
-            done
+            echo "✅ Created drawable/presplash.png"
           fi
 
-          echo "=== Replaced icon resources ==="
+          echo "=== Final icon resources ==="
           find "$RES_DIR" \( -name "ic_launcher*" -o -name "presplash*" -o -name "icon*" \) | head -30
         else
           echo "WARNING: res directory not found at $RES_DIR"
