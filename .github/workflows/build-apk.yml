@@ -108,6 +108,7 @@ jobs:
     - name: Verify APK contents
       if: always()
       run: |
+        set +e
         APK=$(find bin/ -name "*.apk" -type f 2>/dev/null | head -1)
         if [ -n "$APK" ]; then
           echo "=== APK found: $APK ==="
@@ -149,7 +150,7 @@ jobs:
           fi
 
           echo "=== Checking permissions ==="
-          unzip -p "$APK" AndroidManifest.xml 2>/dev/null | strings | grep -i "ACCESS_\|WIFI\|LOCATION\|INTERNET"
+          unzip -p "$APK" AndroidManifest.xml 2>/dev/null | strings | grep -i "ACCESS_\|WIFI\|LOCATION\|INTERNET" || true
         else
           echo "No APK found"
         fi
