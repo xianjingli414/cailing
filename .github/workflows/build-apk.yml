@@ -32,96 +32,53 @@ jobs:
           zlib1g-dev libncurses-dev \
           cmake libffi-dev libssl-dev
 
+    - name: Prepare patched p4a source
+      run: |
+        set -ex
+        # Clone p4a to a known local directory
+        git clone --depth=1 -b master https://github.com/kivy/python-for-android.git /tmp/p4a-local
+
+        # Overwrite PythonActivity.java with our patched version
+        PA_FILE="/tmp/p4a-local/pythonforandroid/bootstraps/webview/build/src/main/java/org/kivy/android/PythonActivity.java"
+        cp -f source/java/org/kivy/android/PythonActivity.java "$PA_FILE"
+        echo "PythonActivity.java patched, WifiBridge count: $(grep -c 'WifiBridge' "$PA_FILE")"
+
+        # Copy WifiBridge.java to the same directory
+        cp -f source/java/org/kivy/android/WifiBridge.java "$(dirname $PA_FILE)/"
+        echo "WifiBridge.java copied, file exists: $(ls -la "$(dirname $PA_FILE)/WifiBridge.java" | awk '{print $5}') bytes"
+
+        # Patch AndroidManifest permissions
+        MANIFEST="/tmp/p4a-local/pythonforandroid/bootstraps/webview/build/templates/AndroidManifest.tmpl.xml"
+        if [ -f "$MANIFEST" ] && ! grep -q "ACCESS_FINE_LOCATION" "$MANIFEST"; then
+          sed -i '/uses-permission.*INTERNET/a\    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />\n    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />' "$MANIFEST"
+          echo "AndroidManifest permissions injected"
+        fi
+
+        echo "=== Verification ==="
+        echo "WifiBridge in PythonActivity: $(grep -c 'WifiBridge' "$PA_FILE")"
+        echo "WifiBridge.java exists: $(test -f "$(dirname $PA_FILE)/WifiBridge.java" && echo YES || echo NO)"
+        echo "Permissions in manifest: $(grep -c 'ACCESS_FINE_LOCATION' "$MANIFEST")"
+
+    - name: Update buildozer.spec to use local p4a
+      run: |
+        # Add p4a.source_dir to buildozer.spec
+        if ! grep -q "p4a.source_dir" buildozer.spec; then
+          echo "" >> buildozer.spec
+          echo "# Use pre-patched local p4a source" >> buildozer.spec
+          echo "p4a.source_dir = /tmp/p4a-local" >> buildozer.spec
+        else
+          sed -i 's|p4a.source_dir.*|p4a.source_dir = /tmp/p4a-local|' buildozer.spec
+        fi
+        echo "buildozer.spec updated:"
+        grep "p4a.source_dir" buildozer.spec
+
     - name: Clean cache
       run: |
         rm -rf ~/.buildozer ~/.android
 
-    - name: Build APK (first pass - initializes p4a and creates dist)
+    - name: Build APK (single pass with patched p4a)
       run: |
         yes | buildozer -v android debug 2>&1 | tee build.log
-
-    - name: Patch files and force Gradle rebuild
-      run: |
-        set -ex
-
-        # ══════════════════════════════════════════════════
-        # Find p4a directory
-        # ══════════════════════════════════════════════════
-        P4A_DIR=$(find . ~/.buildozer /home/runner -name "python-for-android" -type d 2>/dev/null | head -1)
-        echo "P4A_DIR=$P4A_DIR"
-
-        if [ -z "$P4A_DIR" ]; then
-          echo "ERROR: p4a directory not found anywhere!"
-          exit 1
-        fi
-
-        # ══════════════════════════════════════════════════
-        # 1. Overwrite PythonActivity.java in p4a template
-        # ══════════════════════════════════════════════════
-        PA_TEMPLATE="$P4A_DIR/pythonforandroid/bootstraps/webview/build/src/main/java/org/kivy/android/PythonActivity.java"
-        if [ -f "$PA_TEMPLATE" ]; then
-          echo "Overwriting p4a template PythonActivity.java"
-          cp -f source/java/org/kivy/android/PythonActivity.java "$PA_TEMPLATE"
-          echo "WifiBridge count in template: $(grep -c 'WifiBridge' "$PA_TEMPLATE")"
-        fi
-
-        # ══════════════════════════════════════════════════
-        # 2. Copy WifiBridge.java to p4a template directory
-        # ══════════════════════════════════════════════════
-        if [ -d "$(dirname $PA_TEMPLATE)" ]; then
-          cp -f source/java/org/kivy/android/WifiBridge.java "$(dirname $PA_TEMPLATE)/"
-          echo "WifiBridge.java copied to p4a template"
-        fi
-
-        # ══════════════════════════════════════════════════
-        # 3. Find and patch dist directory
-        # ══════════════════════════════════════════════════
-        DIST_DIR=$(find . ~/.buildozer /home/runner -path "*/dists/cailing" -type d 2>/dev/null | head -1)
-        echo "DIST_DIR=$DIST_DIR"
-
-        if [ -n "$DIST_DIR" ]; then
-          DIST_PA="$DIST_DIR/src/main/java/org/kivy/android/PythonActivity.java"
-          if [ -f "$DIST_PA" ]; then
-            echo "Overwriting dist PythonActivity.java"
-            cp -f source/java/org/kivy/android/PythonActivity.java "$DIST_PA"
-            echo "WifiBridge count in dist: $(grep -c 'WifiBridge' "$DIST_PA")"
-          fi
-          cp -f source/java/org/kivy/android/WifiBridge.java "$DIST_DIR/src/main/java/org/kivy/android/"
-          echo "WifiBridge.java copied to dist"
-        fi
-
-        # ══════════════════════════════════════════════════
-        # 4. Patch AndroidManifest permissions
-        # ══════════════════════════════════════════════════
-        MANIFEST_TEMPLATE="$P4A_DIR/pythonforandroid/bootstraps/webview/build/templates/AndroidManifest.tmpl.xml"
-        if [ -f "$MANIFEST_TEMPLATE" ] && ! grep -q "ACCESS_FINE_LOCATION" "$MANIFEST_TEMPLATE"; then
-          sed -i '/uses-permission.*INTERNET/a\    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />\n    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />' "$MANIFEST_TEMPLATE"
-          echo "Permissions injected into p4a template"
-        fi
-
-        if [ -n "$DIST_DIR" ] && [ -f "$DIST_DIR/templates/AndroidManifest.tmpl.xml" ]; then
-          if ! grep -q "ACCESS_FINE_LOCATION" "$DIST_DIR/templates/AndroidManifest.tmpl.xml"; then
-            sed -i '/uses-permission.*INTERNET/a\    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />\n    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />' "$DIST_DIR/templates/AndroidManifest.tmpl.xml"
-            echo "Permissions injected into dist template"
-          fi
-        fi
-
-        # ══════════════════════════════════════════════════
-        # 5. 关键：删除Gradle构建缓存，强制重新编译Java
-        #    buildozer rebuild会用缓存的dist，Gradle也会增量编译跳过
-        #    所以必须清除Gradle的build目录
-        # ══════════════════════════════════════════════════
-        if [ -n "$DIST_DIR" ]; then
-          echo "Cleaning Gradle build cache in dist..."
-          rm -rf "$DIST_DIR/build"
-          echo "Gradle build cache cleaned"
-        fi
-
-        # ══════════════════════════════════════════════════
-        # 6. 删除旧APK并重新构建
-        # ══════════════════════════════════════════════════
-        rm -f bin/*.apk
-        yes | buildozer -v android debug 2>&1 | tee -a build.log
 
     - name: Verify APK contents
       if: always()
@@ -129,6 +86,8 @@ jobs:
         APK=$(find bin/ -name "*.apk" -type f 2>/dev/null | head -1)
         if [ -n "$APK" ]; then
           echo "=== APK found: $APK ==="
+          echo "=== File size ==="
+          ls -la "$APK"
           echo "=== Checking classes.dex for WifiBridge ==="
           unzip -p "$APK" classes.dex 2>/dev/null | strings | grep -i "WifiBridge" && echo "✅ WifiBridge FOUND!" || echo "❌ WifiBridge NOT found"
           echo "=== Checking classes.dex for scanWifi ==="
