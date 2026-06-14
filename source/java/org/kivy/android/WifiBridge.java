@@ -13,17 +13,17 @@ import android.webkit.JavascriptInterface;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
+import org.json.JSONException;
 
 import java.util.List;
 
 /**
- * WifiBridge - JavaScript接口，让WebView中的JS直接调用Android原生WiFi API
- *
- * 在PythonActivity中通过 addJavascriptInterface 注入到WebView
- * JS调用方式: window.WifiBridge.scanWifi()
- *             window.WifiBridge.getConnectionInfo()
- *             window.WifiBridge.hasLocationPermission()
- *             window.WifiBridge.requestLocationPermission()
+ * WifiBridge - JavaScript interface for native WiFi scanning
+ * Injected into WebView via addJavascriptInterface in PythonActivity
+ * JS: window.WifiBridge.scanWifi()
+ *     window.WifiBridge.getConnectionInfo()
+ *     window.WifiBridge.hasLocationPermission()
+ *     window.WifiBridge.requestLocationPermission()
  */
 public class WifiBridge {
     private static final String TAG = "WifiBridge";
@@ -34,8 +34,8 @@ public class WifiBridge {
     }
 
     /**
-     * 扫描WiFi - 读取系统缓存的扫描结果
-     * 返回JSON字符串，包含WiFi列表
+     * Scan WiFi - read system cached scan results
+     * Returns JSON string with WiFi list
      */
     @JavascriptInterface
     public String scanWifi() {
@@ -49,14 +49,14 @@ public class WifiBridge {
                 return results.toString();
             }
 
-            // 尝试触发扫描（静默失败）
+            // Try to trigger a scan (silent fail)
             try {
                 wifiMgr.startScan();
             } catch (Exception e) {
-                Log.w(TAG, "startScan failed (expected on some ROMs): " + e.getMessage());
+                Log.w(TAG, "startScan failed: " + e.getMessage());
             }
 
-            // 读取系统缓存的扫描结果
+            // Read system cached scan results
             List<ScanResult> scanResults = wifiMgr.getScanResults();
             Log.i(TAG, "getScanResults returned " + (scanResults != null ? scanResults.size() : 0) + " results");
 
@@ -69,19 +69,17 @@ public class WifiBridge {
 
                         if (bssid.isEmpty()) continue;
 
-                        // 频率转信道
                         int freq = r.frequency;
                         int ch = channelFromFreq(freq);
                         String band = ch > 14 ? "5G" : "2.4G";
 
-                        // 加密类型
                         String caps = r.capabilities != null ? r.capabilities : "";
                         String enc;
                         if (caps.contains("WPA3")) enc = "WPA3";
                         else if (caps.contains("WPA2")) enc = "WPA2";
                         else if (caps.contains("WPA")) enc = "WPA/WPA2";
                         else if (caps.contains("WEP")) enc = "WEP";
-                        else enc = "开放";
+                        else enc = "open";
 
                         item.put("ssid", ssid);
                         item.put("bssid", bssid);
@@ -92,45 +90,51 @@ public class WifiBridge {
                         item.put("vendor", getVendor(bssid));
                         item.put("frequency", freq);
                         results.put(item);
-                    } catch (Exception e) {
+                    } catch (JSONException e) {
                         Log.w(TAG, "Error parsing scan result: " + e.getMessage());
                     }
                 }
             }
 
-            // 补充当前连接的WiFi
+            // Supplement with currently connected WiFi
             try {
                 WifiInfo wifiInfo = wifiMgr.getConnectionInfo();
                 if (wifiInfo != null) {
                     String connBssid = wifiInfo.getBSSID() != null ? wifiInfo.getBSSID().toUpperCase() : "";
                     String connSsid = wifiInfo.getSSID() != null ? wifiInfo.getSSID() : "";
-                    // Android 8.0+ SSID带引号
                     if (connSsid.startsWith("\"") && connSsid.endsWith("\"")) {
                         connSsid = connSsid.substring(1, connSsid.length() - 1);
                     }
 
                     if (!connBssid.isEmpty() && !connBssid.equals("00:00:00:00:00:00")) {
-                        // 检查是否已在扫描结果中
                         boolean found = false;
                         for (int i = 0; i < results.length(); i++) {
-                            JSONObject existing = results.getJSONObject(i);
-                            if (connBssid.equals(existing.optString("bssid"))) {
-                                found = true;
-                                break;
+                            try {
+                                JSONObject existing = results.getJSONObject(i);
+                                if (connBssid.equals(existing.optString("bssid"))) {
+                                    found = true;
+                                    break;
+                                }
+                            } catch (JSONException e) {
+                                // skip
                             }
                         }
                         if (!found) {
-                            JSONObject connItem = new JSONObject();
-                            connItem.put("ssid", connSsid.isEmpty() ? "<Connected>" : connSsid);
-                            connItem.put("bssid", connBssid);
-                            connItem.put("signal", wifiInfo.getRssi());
-                            connItem.put("channel", 0);
-                            connItem.put("encrypt_type", "WPA2");
-                            connItem.put("band", "2.4G");
-                            connItem.put("vendor", getVendor(connBssid));
-                            connItem.put("frequency", 0);
-                            results.put(connItem);
-                            Log.i(TAG, "Added connected WiFi: " + connSsid + " (" + connBssid + ")");
+                            try {
+                                JSONObject connItem = new JSONObject();
+                                connItem.put("ssid", connSsid.isEmpty() ? "<Connected>" : connSsid);
+                                connItem.put("bssid", connBssid);
+                                connItem.put("signal", wifiInfo.getRssi());
+                                connItem.put("channel", 0);
+                                connItem.put("encrypt_type", "WPA2");
+                                connItem.put("band", "2.4G");
+                                connItem.put("vendor", getVendor(connBssid));
+                                connItem.put("frequency", 0);
+                                results.put(connItem);
+                                Log.i(TAG, "Added connected WiFi: " + connSsid + " (" + connBssid + ")");
+                            } catch (JSONException e) {
+                                Log.w(TAG, "Error creating connected WiFi item: " + e.getMessage());
+                            }
                         }
                     }
                 }
@@ -147,7 +151,7 @@ public class WifiBridge {
     }
 
     /**
-     * 获取当前连接的WiFi信息
+     * Get current WiFi connection info
      */
     @JavascriptInterface
     public String getConnectionInfo() {
@@ -156,7 +160,7 @@ public class WifiBridge {
             WifiManager wifiMgr = (WifiManager) mActivity.getApplicationContext()
                     .getSystemService(Context.WIFI_SERVICE);
             if (wifiMgr == null) {
-                result.put("error", "WifiManager is null");
+                try { result.put("error", "WifiManager is null"); } catch (JSONException e) {}
                 return result.toString();
             }
             WifiInfo wifiInfo = wifiMgr.getConnectionInfo();
@@ -166,19 +170,23 @@ public class WifiBridge {
                     ssid = ssid.substring(1, ssid.length() - 1);
                 }
                 String bssid = wifiInfo.getBSSID() != null ? wifiInfo.getBSSID().toUpperCase() : "";
-                result.put("ssid", ssid);
-                result.put("bssid", bssid);
-                result.put("rssi", wifiInfo.getRssi());
-                result.put("connected", !bssid.isEmpty() && !bssid.equals("00:00:00:00:00:00"));
+                try {
+                    result.put("ssid", ssid);
+                    result.put("bssid", bssid);
+                    result.put("rssi", wifiInfo.getRssi());
+                    result.put("connected", !bssid.isEmpty() && !bssid.equals("00:00:00:00:00:00"));
+                } catch (JSONException e) {
+                    Log.w(TAG, "Error putting connection info: " + e.getMessage());
+                }
             }
         } catch (Exception e) {
-            result.put("error", e.getMessage());
+            try { result.put("error", e.getMessage()); } catch (JSONException je) {}
         }
         return result.toString();
     }
 
     /**
-     * 检查是否有位置权限
+     * Check if location permission is granted
      */
     @JavascriptInterface
     public boolean hasLocationPermission() {
@@ -188,7 +196,7 @@ public class WifiBridge {
     }
 
     /**
-     * 请求位置权限（在UI线程上）
+     * Request location permission on UI thread
      */
     @JavascriptInterface
     public void requestLocationPermission() {
@@ -215,7 +223,7 @@ public class WifiBridge {
     }
 
     /**
-     * 检查WiFi是否开启
+     * Check if WiFi is enabled
      */
     @JavascriptInterface
     public boolean isWifiEnabled() {
@@ -228,7 +236,7 @@ public class WifiBridge {
         }
     }
 
-    // ── 辅助方法 ──
+    // Helper methods
 
     private static int channelFromFreq(int freq) {
         if (2412 <= freq && freq <= 2484) return (freq - 2412) / 5 + 1;
@@ -239,9 +247,10 @@ public class WifiBridge {
     }
 
     private static String getVendor(String bssid) {
-        if (bssid == null || bssid.isEmpty()) return "未知";
-        String prefix = bssid.toUpperCase().replace(":", "").substring(0, 6);
-        // 常见OUI厂商
+        if (bssid == null || bssid.isEmpty()) return "unknown";
+        String prefix = bssid.toUpperCase().replace(":", "");
+        if (prefix.length() < 6) return "unknown";
+        prefix = prefix.substring(0, 6);
         if (prefix.startsWith("005056")) return "VMware";
         if (prefix.startsWith("000C29")) return "VMware";
         if (prefix.startsWith("001A2B")) return "Cisco";
@@ -262,6 +271,6 @@ public class WifiBridge {
         if (prefix.startsWith("3468")) return "Huawei";
         if (prefix.startsWith("9C3A")) return "Huawei";
         if (prefix.startsWith("E019")) return "Huawei";
-        return "未知";
+        return "unknown";
     }
 }
