@@ -40,22 +40,52 @@ jobs:
       run: |
         yes | buildozer -v android debug 2>&1 | tee build.log
 
+    - name: Diagnose build layout
+      run: |
+        echo "=== .buildozer layout ==="
+        find .buildozer -maxdepth 5 -type d 2>/dev/null | head -40
+        echo ""
+        echo "=== ~/.buildozer layout ==="
+        find ~/.buildozer -maxdepth 5 -type d 2>/dev/null | head -40
+        echo ""
+        echo "=== Find PythonActivity.java everywhere ==="
+        find /home/runner -name "PythonActivity.java" -type f 2>/dev/null
+        echo ""
+        echo "=== Find python-for-android everywhere ==="
+        find /home/runner -name "python-for-android" -type d 2>/dev/null
+
     - name: Patch p4a source + dist and rebuild
       run: |
         set -ex
 
-        P4A_DIR=$(find ~/.buildozer/android/platform -name "python-for-android" -type d 2>/dev/null | head -1)
+        # ══════════════════════════════════════════════════
+        # 查找p4a目录 — 同时搜索项目目录和home目录
+        # ══════════════════════════════════════════════════
+        P4A_DIR=$(find . ~/.buildozer /home/runner -name "python-for-android" -type d 2>/dev/null | head -1)
         echo "P4A_DIR=$P4A_DIR"
 
         if [ -z "$P4A_DIR" ]; then
-          echo "ERROR: p4a directory not found!"
+          echo "ERROR: p4a directory not found anywhere!"
+          echo "Searching for PythonActivity.java directly..."
+          PA_FOUND=$(find /home/runner -name "PythonActivity.java" -type f 2>/dev/null | head -5)
+          echo "PythonActivity.java locations: $PA_FOUND"
+          # 尝试直接从PythonActivity.java路径推导
+          if [ -n "$PA_FOUND" ]; then
+            P4A_DIR=$(echo "$PA_FOUND" | head -1 | sed 's|/pythonforandroid/.*||')
+            echo "Derived P4A_DIR=$P4A_DIR"
+          fi
+        fi
+
+        if [ -z "$P4A_DIR" ]; then
+          echo "FATAL: Cannot find p4a directory, aborting"
           exit 1
         fi
 
         # ══════════════════════════════════════════════════
-        # 1. 覆盖 p4a 模板中的 PythonActivity.java（完整文件替换，不用sed）
+        # 1. 覆盖 p4a 模板中的 PythonActivity.java
         # ══════════════════════════════════════════════════
         PA_TEMPLATE="$P4A_DIR/pythonforandroid/bootstraps/webview/build/src/main/java/org/kivy/android/PythonActivity.java"
+        echo "PA_TEMPLATE=$PA_TEMPLATE"
         if [ -f "$PA_TEMPLATE" ]; then
           echo "Overwriting p4a template PythonActivity.java with patched version"
           cp -f source/java/org/kivy/android/PythonActivity.java "$PA_TEMPLATE"
@@ -63,12 +93,14 @@ jobs:
           grep -c "WifiBridge" "$PA_TEMPLATE"
         else
           echo "WARNING: p4a template PythonActivity.java not found at $PA_TEMPLATE"
+          echo "Listing directory contents:"
+          ls -la "$P4A_DIR/pythonforandroid/bootstraps/webview/build/src/main/java/org/kivy/android/" 2>/dev/null || echo "Directory not found"
         fi
 
         # ══════════════════════════════════════════════════
         # 2. 复制 WifiBridge.java 到 p4a 模板目录
         # ══════════════════════════════════════════════════
-        if [ -f "$PA_TEMPLATE" ]; then
+        if [ -d "$(dirname $PA_TEMPLATE)" ]; then
           WIFI_DST="$(dirname $PA_TEMPLATE)/WifiBridge.java"
           echo "Copying WifiBridge.java to $WIFI_DST"
           cp -f source/java/org/kivy/android/WifiBridge.java "$WIFI_DST"
@@ -78,9 +110,10 @@ jobs:
         # ══════════════════════════════════════════════════
         # 3. 同时覆盖 dist 目录中的 PythonActivity.java（双保险）
         # ══════════════════════════════════════════════════
-        DIST_DIR=$(find .buildozer/android/platform/build-*/dists/cailing -maxdepth 0 -type d 2>/dev/null | head -1)
+        DIST_DIR=$(find . ~/.buildozer /home/runner -path "*/dists/cailing" -type d 2>/dev/null | head -1)
+        echo "DIST_DIR=$DIST_DIR"
+
         if [ -n "$DIST_DIR" ]; then
-          echo "Found dist directory: $DIST_DIR"
           DIST_PA="$DIST_DIR/src/main/java/org/kivy/android/PythonActivity.java"
           if [ -f "$DIST_PA" ]; then
             echo "Overwriting dist PythonActivity.java with patched version"
@@ -88,7 +121,7 @@ jobs:
             echo "Verify WifiBridge in dist:"
             grep -c "WifiBridge" "$DIST_PA"
           fi
-          DIST_WIFI="$(dirname $DIST_PA)/WifiBridge.java"
+          DIST_WIFI="$DIST_DIR/src/main/java/org/kivy/android/WifiBridge.java"
           echo "Copying WifiBridge.java to dist: $DIST_WIFI"
           cp -f source/java/org/kivy/android/WifiBridge.java "$DIST_WIFI"
           ls -la "$DIST_WIFI"
