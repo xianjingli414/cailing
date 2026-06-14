@@ -22,6 +22,9 @@ import android.webkit.CookieManager;
 import android.webkit.WebBackForwardList;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.webkit.JsResult;
+import android.webkit.JsPromptResult;
+import android.webkit.WebChromeClient;
 import android.widget.AbsoluteLayout;
 import android.widget.ImageView;
 import android.widget.Toast;
@@ -198,6 +201,29 @@ public class PythonActivity extends Activity {
                             CookieManager.getInstance().flush();
                         }
                     });
+            // [CAILING PATCH] 设置WebChromeClient以支持confirm/alert/prompt弹窗
+            // 没有WebChromeClient，JS的confirm()不工作，导致删除功能无法确认
+            mWebView.setWebChromeClient(new WebChromeClient() {
+                @Override
+                public boolean onJsConfirm(WebView view, String url, String message, JsResult result) {
+                    new AlertDialog.Builder(PythonActivity.mActivity)
+                        .setMessage(message)
+                        .setPositiveButton("确定", (dialog, which) -> result.confirm())
+                        .setNegativeButton("取消", (dialog, which) -> result.cancel())
+                        .setOnCancelListener(dialog -> result.cancel())
+                        .show();
+                    return true;
+                }
+                @Override
+                public boolean onJsAlert(WebView view, String url, String message, JsResult result) {
+                    new AlertDialog.Builder(PythonActivity.mActivity)
+                        .setMessage(message)
+                        .setPositiveButton("确定", (dialog, which) -> result.confirm())
+                        .setOnCancelListener(dialog -> result.confirm())
+                        .show();
+                    return true;
+                }
+            });
             mLayout = new AbsoluteLayout(PythonActivity.mActivity);
             mLayout.addView(mWebView);
 

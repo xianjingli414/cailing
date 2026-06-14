@@ -99,7 +99,7 @@
   .batch-info { flex:1; font-size:13px; }
   .batch-info .cnt { font-size:18px; font-weight:700; color:var(--primary); }
   .batch-info .lbl { color:var(--text2); }
-  .search-wrap { padding:8px 12px; background:var(--bg); position:sticky; z-index:40; }
+  .search-wrap { padding:8px 12px; background:var(--bg); position:sticky; top:0; z-index:40; }
   .search-inner { position:relative; }
   .search-input { width:100%; padding:9px 14px 9px 36px; border:1px solid var(--border); border-radius:20px; background:#fff; font-size:14px; outline:none; color:var(--text); }
   .search-icon { position:absolute; left:11px; top:50%; transform:translateY(-50%); width:15px; height:15px; fill:var(--text3); pointer-events:none; }
@@ -211,7 +211,7 @@
 <!-- ══════════════ RECORDS ══════════════ -->
 <div class="page" id="page-records">
   <div class="page-header"><div><p class="page-title">记录</p><p class="page-subtitle" id="recordsSubtitle">共 0 条记录</p></div></div>
-  <div class="search-wrap" style="top:89px"><div class="search-inner"><svg class="search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input class="search-input" id="recordSearch" placeholder="搜索 SSID 或 BSSID..." oninput="renderRecords()"></div></div>
+  <div class="search-wrap"><div class="search-inner"><svg class="search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input class="search-input" id="recordSearch" placeholder="搜索 SSID、BSSID 或单位名称..." oninput="renderRecords()"></div></div>
   <div class="filter-row" style="padding-top:4px" id="recordFilterRow">
     <div class="filter-chip active" onclick="setRecordFilter('all',this)">全部</div>
     <div class="filter-chip" onclick="setRecordFilter('2.4G',this)">2.4G</div>
@@ -232,7 +232,7 @@
 <!-- ══════════════ UNITS ══════════════ -->
 <div class="page" id="page-units">
   <div class="page-header"><div><p class="page-title">单位管理</p><p class="page-subtitle" id="unitsSubtitle">共 0 个单位</p></div><button class="btn btn-sm btn-outline" id="unitImportBtn" onclick="triggerUnitImport()" style="display:none">导入</button></div>
-  <div class="search-wrap" style="top:89px"><div class="search-inner"><svg class="search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input class="search-input" id="unitSearch" placeholder="搜索单位名称..." oninput="renderUnits()"></div></div>
+  <div class="search-wrap"><div class="search-inner"><svg class="search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input class="search-input" id="unitSearch" placeholder="搜索单位名称或信用代码..." oninput="renderUnits()"></div></div>
   <div class="card card-last" id="unitList" style="margin-top:8px"><div class="empty"><svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg><p>暂无单位数据</p></div></div>
   <button class="fab" id="unitFab" onclick="showAddUnit()"><svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
   <input type="file" id="unitFileInput" accept=".csv" onchange="importUnitsCSV(event)" style="display:none">
@@ -248,7 +248,6 @@
     <div class="form-item"><div class="form-label">账号</div><input class="form-input" id="loginUser" placeholder="请输入账号"></div>
     <div class="form-item"><div class="form-label">密码</div><input class="form-input" id="loginPass" type="password" placeholder="请输入密码"></div>
     <div class="form-actions"><button class="btn btn-ghost" onclick="skipLogin()">游客模式</button><button class="btn btn-primary" onclick="doLogin()">登录</button></div>
-    <p style="text-align:center;font-size:12px;color:var(--text3);margin:12px 0 0">管理员演示：admin / admin123</p>
   </div>
 
   <div id="loggedInPanel" style="display:none">
@@ -439,17 +438,7 @@ function getPerms() {
 function hasPerm(key) { if (isAdmin()) return true; return getPerms()[key] !== false; }
 function isAdmin() { return DB.currentUser && DB.currentUser.role === 'admin'; }
 
-// Seed demo
-if (DB.units.length === 0) {
-  DB.addUnit({ unit_name: '示例科技有限公司', credit_code: '91110000MA01ABCD01', address: '北京市朝阳区示例路1号' });
-  DB.addUnit({ unit_name: '测试网络股份公司', credit_code: '91110000MA01EFGH02', address: '上海市浦东新区测试大道88号' });
-}
-if (DB.wifiRecords.length === 0) {
-  [{ ssid:'TP-LINK_Office',bssid:'2C:AB:00:11:22:33',signal:-45,channel:6,encrypt_type:'WPA2',band:'2.4G',vendor:'TP-Link' },
-   { ssid:'Huawei-WiFi-5G',bssid:'00:18:82:AA:BB:CC',signal:-58,channel:36,encrypt_type:'WPA3',band:'5G',vendor:'Huawei' },
-   { ssid:'ChinaNet-guestWiFi',bssid:'00:1A:2B:CC:DD:EE',signal:-72,channel:11,encrypt_type:'WPA2',band:'2.4G',vendor:'Cisco' }].forEach(s => DB.addWifi(s));
-  const u = DB.units[0]; const r = DB.wifiRecords[0]; if (r && u) { r.unit_id = u.id; r.unit_name = u.unit_name; DB.saveWifi(); }
-}
+// Seed demo data removed - app starts empty
 
 // ══════════════════════ CLOCK ══════════════════════
 function updateClock() { document.getElementById('clock').textContent = new Date().toTimeString().slice(0,5); }
@@ -747,7 +736,7 @@ function renderRecords() {
 }
 function toggleRecordItem(id,el){if(selectedRecordIds.has(id)){selectedRecordIds.delete(id);el.classList.remove('checked');}else{selectedRecordIds.add(id);el.classList.add('checked');}renderRecords();}
 function toggleRecordSelectAll(){const q=document.getElementById('recordSearch').value.toLowerCase();let rows=DB.wifiRecords.filter(r=>{if(q&&!r.ssid.toLowerCase().includes(q)&&!r.bssid.toLowerCase().includes(q)) return false;if(recordFilter==='2.4G'&&r.band!=='2.4G') return false;if(recordFilter==='5G'&&r.band!=='5G') return false;if(recordFilter==='bound'&&!r.unit_id) return false;if(recordFilter==='unbound'&&r.unit_id) return false;if(recordFilter==='exported'&&!r.exported) return false;if(recordFilter==='unexported'&&r.exported) return false;return true;});if(selectedRecordIds.size===rows.length) selectedRecordIds.clear();else rows.forEach(r=>selectedRecordIds.add(r.id));renderRecords();}
-function deleteRecord(id){if(!hasPerm('records_delete')){showToast('删除记录功能已被管理员限制');return;}if(!confirm('确认删除该条记录？'))return;selectedRecordIds.delete(id);DB.deleteWifi(id);updateStats();renderScanList();renderRecords();showToast('已删除');}
+function deleteRecord(id){if(!hasPerm('records_delete')){showToast('删除记录功能已被管理员限制');return;}selectedRecordIds.delete(id);DB.deleteWifi(id);updateStats();renderScanList();renderRecords();showToast('已删除');}
 function exportSelectedRecords(){if(!hasPerm('records_export')){showToast('导出功能已被管理员限制');return;}if(!selectedRecordIds.size){showToast('请先勾选要导出的记录');return;}const rows=DB.wifiRecords.filter(r=>selectedRecordIds.has(r.id));if(!rows.length){showToast('未找到选中记录');return;}const headers=['ID','SSID','BSSID','信号(dBm)','信道','加密方式','频段','厂商','采集时间','关联单位'];const keys=['id','ssid','bssid','signal','channel','encrypt_type','band','vendor','collect_time','unit_name'];const csv=[headers,...rows.map(r=>keys.map(k=>'"'+String(r[k]||'').replace(/"/g,'""')+'"'))].map(r=>r.join(',')).join('\n');const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='wifi_export_'+new Date().toLocaleDateString('zh-CN').replace(/\//g,'-')+'.csv';a.click();URL.revokeObjectURL(a.href);rows.forEach(r=>r.exported=true);DB.saveWifi();showToast('已导出 '+rows.length+' 条记录');renderRecords();}
 
 // ══════════════════════ UNITS ══════════════════════
@@ -764,7 +753,7 @@ function renderUnits(){document.getElementById('unitsSubtitle').textContent='共
 function showAddUnit(){if(!hasPerm('units_add')){showToast('添加单位功能已被管理员限制');return;}editingUnitId=null;document.getElementById('unitModalTitle').textContent='添加单位';['unitName','unitCode','unitAddr'].forEach(id=>document.getElementById(id).value='');openModal('addUnitModal');}
 function editUnit(id){if(!hasPerm('units_edit')){showToast('编辑单位功能已被管理员限制');return;}const u=DB.units.find(x=>x.id===id);if(!u)return;editingUnitId=id;document.getElementById('unitModalTitle').textContent='编辑单位';document.getElementById('unitName').value=u.unit_name;document.getElementById('unitCode').value=u.credit_code;document.getElementById('unitAddr').value=u.address;openModal('addUnitModal');}
 function submitUnit(){const name=document.getElementById('unitName').value.trim(),code=document.getElementById('unitCode').value.trim(),addr=document.getElementById('unitAddr').value.trim();if(!name){showToast('请输入单位名称');return;}if(!code){showToast('请输入信用代码');return;}if(!addr){showToast('请输入地址');return;}if(editingUnitId){DB.updateUnit(editingUnitId,{unit_name:name,credit_code:code,address:addr});showToast('已更新');}else{DB.addUnit({unit_name:name,credit_code:code,address:addr})?showToast('添加成功'):showToast('该单位名称已存在');}closeModal('addUnitModal');updateStats();renderUnits();}
-function deleteUnit(id){if(!hasPerm('units_delete')){showToast('删除单位功能已被管理员限制');return;}if(!confirm('确认删除该单位？关联 WiFi 记录将解除绑定。'))return;DB.deleteUnit(id);updateStats();renderUnits();showToast('已删除');}
+function deleteUnit(id){if(!hasPerm('units_delete')){showToast('删除单位功能已被管理员限制');return;}DB.deleteUnit(id);updateStats();renderUnits();showToast('已删除');}
 function triggerUnitImport(){if(!hasPerm('units_import')){showToast('导入功能已被管理员限制');return;}document.getElementById('unitFileInput').click();}
 function importUnitsCSV(e){const file=e.target.files[0];e.target.value='';if(!file)return;const reader=new FileReader();reader.onload=function(ev){let cnt=0,skip=0;const lines=ev.target.result.split(/\r?\n/).filter(l=>l.trim());if(lines.length<2){showToast('CSV 文件格式不正确');return;}for(let i=1;i<lines.length;i++){const cols=lines[i].split(',').map(c=>c.replace(/^"|"$/g,'').trim());if(cols.length<3)continue;if(DB.addUnit({unit_name:cols[0],credit_code:cols[1],address:cols[2]}))cnt++;else skip++;}updateStats();renderUnits();showToast('导入 '+cnt+' 条'+(skip>0?'（'+skip+' 条重复已跳过）':''));};reader.readAsText(file,'UTF-8');}
 function escapeHtml(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
@@ -893,7 +882,6 @@ async function submitAddUser(){
   closeModal('addUserModal'); renderUserList(); showToast('用户「'+display+'」已创建（仅本地）');
 }
 async function deleteUser(username){
-  if(!confirm('确认删除用户 '+username+'？'))return;
   // 优先通过 Flask API 从服务器删除
   try{
     const resp=await fetch('/api/users/'+username,{method:'DELETE'});
