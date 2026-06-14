@@ -83,17 +83,80 @@ jobs:
         echo "=== WifiBridge class declaration ==="
         grep -n "class WifiBridge\|@JavascriptInterface\|public String scanWifi" "$WB_DEST"
 
-        # ── 5. 清除所有 Gradle 缓存（包括 .gradle 目录）──
+        # ── 5. 替换App图标 ──
+        echo "Replacing app icons in dist res directory..."
+        RES_DIR="$DIST_DIR/src/main/res"
+        if [ -d "$RES_DIR" ]; then
+          # 列出原始图标资源
+          echo "=== Original icon resources ==="
+          find "$RES_DIR" \( -name "ic_launcher*" -o -name "icon*" -o -name "ic_launcher_round*" \) | head -30
+
+          # 查找AndroidManifest.xml中引用的图标名
+          MANIFEST="$DIST_DIR/src/main/AndroidManifest.xml"
+          ICON_REF=""
+          if [ -f "$MANIFEST" ]; then
+            ICON_REF=$(grep -oP 'android:icon="@\w+/(\w+)"' "$MANIFEST" | head -1 | grep -oP '"@\w+/\K\w+')
+            echo "AndroidManifest icon reference: $ICON_REF"
+          fi
+
+          # 复制自定义图标到各mipmap目录
+          # 无论模板用什么文件名，都替换ic_launcher.png并创建ICON_REF的副本
+          for mipmap in mipmap-mdpi mipmap-hdpi mipmap-xhdpi mipmap-xxhdpi mipmap-xxxhdpi; do
+            TARGET_DIR="$RES_DIR/$mipmap"
+            mkdir -p "$TARGET_DIR"
+            if [ -f "source/icons/$mipmap/ic_launcher.png" ]; then
+              # 替换ic_launcher.png
+              cp -f "source/icons/$mipmap/ic_launcher.png" "$TARGET_DIR/ic_launcher.png"
+              echo "✅ Replaced $mipmap/ic_launcher.png"
+
+              # 如果AndroidManifest引用了不同的图标名，也创建对应的文件
+              if [ -n "$ICON_REF" ] && [ "$ICON_REF" != "ic_launcher" ]; then
+                cp -f "source/icons/$mipmap/ic_launcher.png" "$TARGET_DIR/${ICON_REF}.png"
+                echo "✅ Also created $mipmap/${ICON_REF}.png"
+              fi
+
+              # 也替换可能存在的其他图标变体（ic_launcher_round等）
+              for existing in "$TARGET_DIR"/ic_launcher_round*; do
+                if [ -f "$existing" ]; then
+                  cp -f "source/icons/$mipmap/ic_launcher.png" "$existing"
+                  echo "✅ Replaced $(basename $existing) in $mipmap"
+                fi
+              done
+            fi
+          done
+
+          # 替换presplash
+          DRAWABLE_DIR="$RES_DIR/drawable"
+          mkdir -p "$DRAWABLE_DIR"
+          if [ -f "source/icons/drawable/presplash.png" ]; then
+            cp -f "source/icons/drawable/presplash.png" "$DRAWABLE_DIR/presplash.png"
+            echo "✅ Replaced drawable/presplash.png"
+            # 也替换可能的presplash变体
+            for existing in "$DRAWABLE_DIR"/presplash*; do
+              if [ -f "$existing" ] && [ "$existing" != "$DRAWABLE_DIR/presplash.png" ]; then
+                cp -f "source/icons/drawable/presplash.png" "$existing"
+                echo "✅ Replaced $(basename $existing) in drawable"
+              fi
+            done
+          fi
+
+          echo "=== Replaced icon resources ==="
+          find "$RES_DIR" \( -name "ic_launcher*" -o -name "presplash*" -o -name "icon*" \) | head -30
+        else
+          echo "WARNING: res directory not found at $RES_DIR"
+        fi
+
+        # ── 6. 清除所有 Gradle 缓存（包括 .gradle 目录）──
         echo "Clearing ALL Gradle caches..."
         rm -rf "$DIST_DIR/build"
         rm -rf "$DIST_DIR/.gradle"
 
-        # ── 6. 用 Gradle 直接重新编译 APK ──
+        # ── 7. 用 Gradle 直接重新编译 APK ──
         cd "$DIST_DIR"
         echo "Running ./gradlew clean assembleDebug..."
         ./gradlew clean assembleDebug --info 2>&1 | tee -a /home/runner/work/cailing/cailing/build.log
 
-        # ── 7. 复制新 APK 到 bin 目录 ──
+        # ── 8. 复制新 APK 到 bin 目录 ──
         cd /home/runner/work/cailing/cailing
         NEW_APK=$(find "$DIST_DIR/build/outputs/apk/" -name "*.apk" -type f 2>/dev/null | head -1)
         if [ -n "$NEW_APK" ]; then
@@ -151,6 +214,9 @@ jobs:
 
           echo "=== Checking permissions ==="
           unzip -p "$APK" AndroidManifest.xml 2>/dev/null | strings | grep -i "ACCESS_\|WIFI\|LOCATION\|INTERNET" || true
+
+          echo "=== Checking app icons in APK ==="
+          unzip -l "$APK" | grep -E "ic_launcher|presplash|icon" | head -20 || true
         else
           echo "No APK found"
         fi

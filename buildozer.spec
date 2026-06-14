@@ -20,6 +20,10 @@ p4a.port = 5000
 # 必须使用 p4a 权限参数，确保写入 AndroidManifest.xml
 android.permissions = ACCESS_FINE_LOCATION, ACCESS_COARSE_LOCATION, ACCESS_WIFI_STATE, CHANGE_WIFI_STATE, ACCESS_NETWORK_STATE, INTERNET
 
+# ── 图标和启动画面 ──
+icon.filename = %(source.dir)s/icon.png
+presplash.filename = %(source.dir)s/presplash.png
+
 orientation = portrait
 fullscreen = 0
 allow_screenshots = 1
