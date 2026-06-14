@@ -36,122 +36,73 @@ jobs:
       run: |
         rm -rf ~/.buildozer ~/.android
 
-    - name: Build APK (first pass)
+    # ══════════════════════════════════════════════════════════
+    # 第一步：只运行一次 buildozer，生成初始 APK + dist
+    # 不再运行第二次 buildozer（它会覆盖我们的 patch）
+    # ══════════════════════════════════════════════════════════
+    - name: Build APK (single buildozer pass)
       run: |
         yes | buildozer -v android debug 2>&1 | tee build.log
 
-    - name: Patch and force complete rebuild
+    # ══════════════════════════════════════════════════════════
+    # 第二步：Post-build — 直接操作 dist，用 Gradle 重新编译
+    # 关键：不再运行 buildozer，只运行 Gradle
+    # ══════════════════════════════════════════════════════════
+    - name: "Patch dist and rebuild with Gradle"
       run: |
         set -ex
 
-        P4A_DIR=$(find . ~/.buildozer /home/runner -name "python-for-android" -type d 2>/dev/null | head -1)
-        DIST_DIR=$(find . ~/.buildozer /home/runner -path "*/dists/cailing" -type d 2>/dev/null | head -1)
-        echo "P4A_DIR=$P4A_DIR"
-        echo "DIST_DIR=$DIST_DIR"
-
-        if [ -z "$P4A_DIR" ]; then
-          echo "ERROR: p4a not found!"
-          exit 1
-        fi
-
-        # ══════════════════════════════════════════════════
-        # 1. Patch p4a template (source of truth for new dists)
-        # ══════════════════════════════════════════════════
-        PA_SRC="$P4A_DIR/pythonforandroid/bootstraps/webview/build/src/main/java/org/kivy/android/PythonActivity.java"
-        cp -f source/java/org/kivy/android/PythonActivity.java "$PA_SRC"
-        cp -f source/java/org/kivy/android/WifiBridge.java "$(dirname $PA_SRC)/"
-        echo "Patched p4a template - WifiBridge count: $(grep -c 'WifiBridge' "$PA_SRC")"
-
-        # Patch AndroidManifest permissions
-        MANIFEST_TEMPLATE="$P4A_DIR/pythonforandroid/bootstraps/webview/build/templates/AndroidManifest.tmpl.xml"
-        if [ -f "$MANIFEST_TEMPLATE" ] && ! grep -q "ACCESS_FINE_LOCATION" "$MANIFEST_TEMPLATE"; then
-          sed -i '/uses-permission.*INTERNET/a\    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />\n    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />' "$MANIFEST_TEMPLATE"
-          echo "Permissions injected"
-        fi
-
-        # ══════════════════════════════════════════════════
-        # 2. Patch dist directory
-        # ══════════════════════════════════════════════════
-        if [ -n "$DIST_DIR" ]; then
-          cp -f source/java/org/kivy/android/PythonActivity.java "$DIST_DIR/src/main/java/org/kivy/android/"
-          cp -f source/java/org/kivy/android/WifiBridge.java "$DIST_DIR/src/main/java/org/kivy/android/"
-          echo "Patched dist - WifiBridge count: $(grep -c 'WifiBridge' "$DIST_DIR/src/main/java/org/kivy/android/PythonActivity.java")"
-        fi
-
-        # ══════════════════════════════════════════════════
-        # 3. 关键：删除整个dist + Gradle build缓存 + bootstrap_builds缓存
-        #    强制buildozer从patched p4a模板完全重建
-        # ══════════════════════════════════════════════════
-        BUILD_BASE=$(dirname "$DIST_DIR")
-        if [ -n "$BUILD_BASE" ] && [ -d "$BUILD_BASE" ]; then
-          echo "Deleting dist + Gradle build cache..."
-          rm -rf "$DIST_DIR"
-          rm -rf "$BUILD_BASE/dists/cailing"
-          rm -rf "$BUILD_BASE/build/bootstrap_builds"
-          echo "Cache deleted"
-        fi
-
-        # ══════════════════════════════════════════════════
-        # 4. 也在build.gradle中添加source/java源码路径（双保险）
-        #    这样即使p4a覆盖了src/main/java中的文件，
-        #    Gradle也会编译source/java/中的文件
-        # ══════════════════════════════════════════════════
-        # (这个在dist重建后做)
-
-        rm -f bin/*.apk
-        yes | buildozer -v android debug 2>&1 | tee -a build.log
-
-    - name: "Post-build: patch build.gradle and repackage"
-      run: |
-        set -ex
-
+        # 找到 dist 目录
         DIST_DIR=$(find . ~/.buildozer /home/runner -path "*/dists/cailing" -type d 2>/dev/null | head -1)
         echo "DIST_DIR=$DIST_DIR"
 
         if [ -z "$DIST_DIR" ]; then
-          echo "No dist found, skipping post-build patch"
-          exit 0
+          echo "ERROR: dist directory not found!"
+          exit 1
         fi
 
-        # 检查dist中的PythonActivity.java是否包含WifiBridge
-        PA_FILE="$DIST_DIR/src/main/java/org/kivy/android/PythonActivity.java"
-        if [ -f "$PA_FILE" ]; then
-          WB_COUNT=$(grep -c 'WifiBridge' "$PA_FILE" || echo 0)
-          echo "WifiBridge count in dist PythonActivity.java: $WB_COUNT"
+        # ── 1. 列出 dist 中原始 Java 文件（debug用）──
+        echo "=== Original Java files in dist ==="
+        find "$DIST_DIR/src/main/java/org/kivy/android/" -name "*.java" -exec ls -la {} \;
 
-          # 如果没有WifiBridge，手动覆盖
-          if [ "$WB_COUNT" -eq 0 ]; then
-            echo "WifiBridge NOT in dist! Overwriting..."
-            cp -f source/java/org/kivy/android/PythonActivity.java "$PA_FILE"
-            cp -f source/java/org/kivy/android/WifiBridge.java "$(dirname $PA_FILE)/"
-            echo "Overwritten - new count: $(grep -c 'WifiBridge' "$PA_FILE")"
-          fi
-        fi
+        # ── 2. 覆盖 PythonActivity.java ──
+        PA_DEST="$DIST_DIR/src/main/java/org/kivy/android/PythonActivity.java"
+        cp -f source/java/org/kivy/android/PythonActivity.java "$PA_DEST"
+        echo "PythonActivity.java patched - WifiBridge refs: $(grep -c 'WifiBridge' "$PA_DEST")"
 
-        # 确保WifiBridge.java在dist中
-        if [ ! -f "$DIST_DIR/src/main/java/org/kivy/android/WifiBridge.java" ]; then
-          echo "WifiBridge.java missing from dist, copying..."
-          cp -f source/java/org/kivy/android/WifiBridge.java "$DIST_DIR/src/main/java/org/kivy/android/"
-        fi
+        # ── 3. 复制 WifiBridge.java 到 dist ──
+        WB_DEST="$DIST_DIR/src/main/java/org/kivy/android/WifiBridge.java"
+        cp -f source/java/org/kivy/android/WifiBridge.java "$WB_DEST"
+        echo "WifiBridge.java copied - size: $(wc -c < "$WB_DEST") bytes"
 
-        # 在build.gradle中添加source/java源码路径
-        GRADLE_FILE="$DIST_DIR/build.gradle"
-        if [ -f "$GRADLE_FILE" ] && ! grep -q "source/java" "$GRADLE_FILE"; then
-          sed -i '/android {/a\    sourceSets {\n        main {\n            java.srcDirs += ["source/java"]\n        }\n    }' "$GRADLE_FILE"
-          echo "Added source/java to build.gradle sourceSets"
-        fi
+        # ── 4. 验证 patch 后的文件 ──
+        echo "=== Patched Java files in dist ==="
+        find "$DIST_DIR/src/main/java/org/kivy/android/" -name "*.java" -exec ls -la {} \;
+        echo "=== PythonActivity WifiBridge references ==="
+        grep -n "WifiBridge" "$PA_DEST"
+        echo "=== WifiBridge class declaration ==="
+        grep -n "class WifiBridge\|@JavascriptInterface\|public String scanWifi" "$WB_DEST"
 
-        # 清除Gradle缓存并重新编译
+        # ── 5. 清除所有 Gradle 缓存（包括 .gradle 目录）──
+        echo "Clearing ALL Gradle caches..."
         rm -rf "$DIST_DIR/build"
-        cd "$DIST_DIR"
-        ./gradlew assembleDebug 2>&1 | tee -a /home/runner/work/cailing/cailing/build.log
-        cd /home/runner/work/cailing/cailing
+        rm -rf "$DIST_DIR/.gradle"
 
-        # 复制新APK到bin目录
+        # ── 6. 用 Gradle 直接重新编译 APK ──
+        cd "$DIST_DIR"
+        echo "Running ./gradlew clean assembleDebug..."
+        ./gradlew clean assembleDebug --info 2>&1 | tee -a /home/runner/work/cailing/cailing/build.log
+
+        # ── 7. 复制新 APK 到 bin 目录 ──
+        cd /home/runner/work/cailing/cailing
         NEW_APK=$(find "$DIST_DIR/build/outputs/apk/" -name "*.apk" -type f 2>/dev/null | head -1)
         if [ -n "$NEW_APK" ]; then
-          cp -f "$NEW_APK" bin/cailing-1.0.0-arm64-v8a_armeabi-v7a-debug.apk
-          echo "New APK copied"
+          rm -f bin/*.apk
+          cp -f "$NEW_APK" bin/cailing-1.0.0-arm64-v8a-debug.apk
+          echo "New APK copied: $(ls -la bin/*.apk)"
+        else
+          echo "ERROR: No APK found after Gradle build!"
+          exit 1
         fi
 
     - name: Verify APK contents
@@ -161,12 +112,42 @@ jobs:
         if [ -n "$APK" ]; then
           echo "=== APK found: $APK ==="
           ls -la "$APK"
-          echo "=== Checking classes.dex for WifiBridge ==="
-          unzip -p "$APK" classes.dex 2>/dev/null | strings | grep -i "WifiBridge" && echo "✅ WifiBridge FOUND!" || echo "❌ WifiBridge NOT found"
-          echo "=== Checking classes.dex for scanWifi ==="
-          unzip -p "$APK" classes.dex 2>/dev/null | strings | grep -i "scanWifi" && echo "✅ scanWifi FOUND!" || echo "❌ scanWifi NOT found"
-          echo "=== Checking classes.dex for addJavascriptInterface ==="
-          unzip -p "$APK" classes.dex 2>/dev/null | strings | grep -i "addJavascriptInterface" && echo "✅ addJavascriptInterface FOUND!" || echo "❌ addJavascriptInterface NOT found"
+
+          # 列出 APK 中所有 dex 文件
+          echo "=== DEX files in APK ==="
+          unzip -l "$APK" | grep "classes.*\.dex"
+
+          # 检查所有 dex 文件中的关键符号
+          FOUND_WIFIBRIDGE=0
+          FOUND_SCANWIFI=0
+          for dex in $(unzip -l "$APK" | grep -oP 'classes\d*\.dex'); do
+            echo "=== Checking $dex ==="
+            if unzip -p "$APK" "$dex" 2>/dev/null | strings | grep -q "WifiBridge"; then
+              echo "✅ WifiBridge FOUND in $dex"
+              FOUND_WIFIBRIDGE=1
+            else
+              echo "❌ WifiBridge NOT in $dex"
+            fi
+            if unzip -p "$APK" "$dex" 2>/dev/null | strings | grep -q "scanWifi"; then
+              echo "✅ scanWifi FOUND in $dex"
+              FOUND_SCANWIFI=1
+            fi
+            if unzip -p "$APK" "$dex" 2>/dev/null | strings | grep -q "addJavascriptInterface"; then
+              echo "✅ addJavascriptInterface FOUND in $dex"
+            fi
+            # 列出 org.kivy.android 包中的所有类
+            echo "--- org.kivy.android classes in $dex ---"
+            unzip -p "$APK" "$dex" 2>/dev/null | strings | grep "org/kivy/android/" | sort -u | head -20
+          done
+
+          echo ""
+          echo "=== FINAL RESULT ==="
+          if [ "$FOUND_WIFIBRIDGE" = "1" ]; then
+            echo "✅✅✅ WifiBridge is in the APK! ✅✅✅"
+          else
+            echo "❌❌❌ WifiBridge NOT in any dex file ❌❌❌"
+          fi
+
           echo "=== Checking permissions ==="
           unzip -p "$APK" AndroidManifest.xml 2>/dev/null | strings | grep -i "ACCESS_\|WIFI\|LOCATION\|INTERNET"
         else
