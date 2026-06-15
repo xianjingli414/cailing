@@ -174,7 +174,7 @@
 
 <div class="status-bar">
   <span class="time" id="clock">15:30</span>
-  <span style="font-size:11px;color:var(--text3)">v15.0</span>
+  <span style="font-size:11px;color:var(--text3)">v16.0</span>
   <button class="user-badge" id="userBadge" onclick="switchPage('mine')">
     <div class="user-avatar" id="userAvatar">客</div>
     <span id="userLabel">游客</span>
@@ -424,63 +424,71 @@ const DB = {
       // 先拉取单位数据（WiFi绑定需要按unit_name匹配本地unit_id）
       const unitResp = await fetch('/api/units/all');
       const unitData = await unitResp.json();
-      if (unitData.units && unitData.units.length > 0) {
-        let newUnits = 0;
-        for (const u of unitData.units) {
-          if (!this.units.find(x => x.unit_name === u.unit_name)) {
-            this.units.unshift({
-              id: this._nextUnitId++, unit_name: u.unit_name,
-              credit_code: u.credit_code || '', address: u.address || '',
-              create_time: u.create_time || new Date().toLocaleString('zh-CN')
-            });
-            newUnits++;
-          }
+      const serverUnits = unitData.units || [];
+      const serverUnitNames = new Set(serverUnits.map(u => u.unit_name));
+      // 删除本地有但服务器没有的单位（说明被删除了）
+      const beforeUnitLen = this.units.length;
+      this.units = this.units.filter(u => serverUnitNames.has(u.unit_name));
+      // 合并服务器新增的单位
+      let newUnits = 0;
+      for (const u of serverUnits) {
+        if (!this.units.find(x => x.unit_name === u.unit_name)) {
+          this.units.unshift({
+            id: this._nextUnitId++, unit_name: u.unit_name,
+            credit_code: u.credit_code || '', address: u.address || '',
+            create_time: u.create_time || new Date().toLocaleString('zh-CN')
+          });
+          newUnits++;
         }
-        if (newUnits > 0) {
-          this.saveUnits();
-          console.log('syncFromServer: +' + newUnits + ' new units');
-        }
+      }
+      if (newUnits > 0 || this.units.length !== beforeUnitLen) {
+        this.saveUnits();
+        console.log('syncFromServer: +' + newUnits + ' new units, removed ' + (beforeUnitLen - this.units.length + newUnits) + ' stale');
       }
       // 拉取WiFi记录
       const wifiResp = await fetch('/api/wifi?page_size=9999');
       const wifiData = await wifiResp.json();
-      if (wifiData.records && wifiData.records.length > 0) {
-        let newCnt = 0, updateCnt = 0;
-        for (const r of wifiData.records) {
-          // 按unit_name匹配本地单位ID（服务器unit_id与本地不同）
-          let localUnitId = null;
-          if (r.unit_name) {
-            const localUnit = this.units.find(x => x.unit_name === r.unit_name);
-            if (localUnit) localUnitId = localUnit.id;
-          }
-          const existing = this.wifiRecords.find(x => x.bssid === r.bssid);
-          if (!existing) {
-            this.wifiRecords.unshift({
-              ssid: r.ssid || '', bssid: r.bssid, signal: r.signal || 0,
-              channel: r.channel || 0, encrypt_type: r.encrypt_type || '未知',
-              band: r.band || '2.4G', vendor: r.vendor || '未知',
-              collect_time: r.collect_time || new Date().toLocaleString('zh-CN'),
-              unit_id: localUnitId, unit_name: r.unit_name || '',
-              latitude: r.latitude || null, longitude: r.longitude || null,
-              exported: false, id: this._nextWifiId++
-            });
-            newCnt++;
-          } else {
-            // 已存在：如果服务器有绑定信息而本地没有，则更新
-            if (r.unit_name && !existing.unit_name) {
-              existing.unit_id = localUnitId;
-              existing.unit_name = r.unit_name || '';
-              updateCnt++;
-            }
-          }
+      const serverRecords = wifiData.records || [];
+      const serverBssids = new Set(serverRecords.map(r => r.bssid));
+      // 删除本地有但服务器没有的WiFi记录（说明被删除了）
+      const beforeWifiLen = this.wifiRecords.length;
+      this.wifiRecords = this.wifiRecords.filter(r => serverBssids.has(r.bssid));
+      // 合并服务器新增/更新的WiFi记录
+      let newCnt = 0, updateCnt = 0;
+      for (const r of serverRecords) {
+        // 按unit_name匹配本地单位ID（服务器unit_id与本地不同）
+        let localUnitId = null;
+        if (r.unit_name) {
+          const localUnit = this.units.find(x => x.unit_name === r.unit_name);
+          if (localUnit) localUnitId = localUnit.id;
         }
-        if (newCnt > 0 || updateCnt > 0) {
-          this.saveWifi();
-          console.log('syncFromServer: +' + newCnt + ' new, ~' + updateCnt + ' updated');
+        const existing = this.wifiRecords.find(x => x.bssid === r.bssid);
+        if (!existing) {
+          this.wifiRecords.unshift({
+            ssid: r.ssid || '', bssid: r.bssid, signal: r.signal || 0,
+            channel: r.channel || 0, encrypt_type: r.encrypt_type || '未知',
+            band: r.band || '2.4G', vendor: r.vendor || '未知',
+            collect_time: r.collect_time || new Date().toLocaleString('zh-CN'),
+            unit_id: localUnitId, unit_name: r.unit_name || '',
+            latitude: r.latitude || null, longitude: r.longitude || null,
+            exported: false, id: this._nextWifiId++
+          });
+          newCnt++;
+        } else {
+          // 已存在：同步服务器的最新字段（绑定信息、unit_name等）
+          if (r.unit_name && r.unit_name !== existing.unit_name) {
+            existing.unit_id = localUnitId;
+            existing.unit_name = r.unit_name || '';
+            updateCnt++;
+          }
         }
       }
-      // 将本地独有的数据推送到服务器
-      await this.syncToServer();
+      if (newCnt > 0 || updateCnt > 0 || this.wifiRecords.length !== beforeWifiLen) {
+        this.saveWifi();
+        console.log('syncFromServer: +' + newCnt + ' new, ~' + updateCnt + ' updated, removed ' + (beforeWifiLen - this.wifiRecords.length + newCnt));
+      }
+      // 不再自动推送本地数据到服务器（避免清空后被本地缓存回写）
+      // 如需手动推送，由用户操作触发
     } catch (e) { console.warn('syncFromServer failed:', e); }
   },
 
@@ -899,7 +907,7 @@ function _executeBind(bssids, unitId, u) {
   closeModal('bindUnitModal');
   selectedBssids.clear(); renderScanList(); showToast('已将 '+cnt+' 条 WiFi 绑定到「'+(u?u.unit_name:'')+'」');
   // 同步绑定到服务器（传 unit_name 避免本地ID与服务器ID不一致）
-  fetch('/api/wifi/bulk-bind',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({bssids:bssids,unit_name:u?u.unit_name:'',unit_id:unitId})}).catch(()=>{});
+  fetch('/api/wifi/bulk-bind',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({bssids:bssids,unit_name:u?u.unit_name:''})}).catch(()=>{});
 }
 let _pendingBindUnitId = null, _pendingBindBssids = [];
 function confirmRebind() {
@@ -953,8 +961,9 @@ function renderUnits(){document.getElementById('unitsSubtitle').textContent='共
 }
 function showAddUnit(){if(!hasPerm('units_add')){showToast('添加单位功能已被管理员限制');return;}editingUnitId=null;document.getElementById('unitModalTitle').textContent='添加单位';['unitName','unitCode','unitAddr'].forEach(id=>document.getElementById(id).value='');openModal('addUnitModal');}
 function editUnit(id){if(!hasPerm('units_edit')){showToast('编辑单位功能已被管理员限制');return;}const u=DB.units.find(x=>x.id===id);if(!u)return;editingUnitId=id;document.getElementById('unitModalTitle').textContent='编辑单位';document.getElementById('unitName').value=u.unit_name;document.getElementById('unitCode').value=u.credit_code;document.getElementById('unitAddr').value=u.address;openModal('addUnitModal');}
-function submitUnit(){const name=document.getElementById('unitName').value.trim(),code=document.getElementById('unitCode').value.trim(),addr=document.getElementById('unitAddr').value.trim();if(!name){showToast('请输入单位名称');return;}if(!code){showToast('请输入信用代码');return;}if(!addr){showToast('请输入地址');return;}if(editingUnitId){DB.updateUnit(editingUnitId,{unit_name:name,credit_code:code,address:addr});showToast('已更新');fetch('/api/units/'+editingUnitId,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({unit_name:name,credit_code:code,address:addr})}).catch(()=>{});}else{if(DB.addUnit({unit_name:name,credit_code:code,address:addr})){showToast('添加成功');fetch('/api/units',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({unit_name:name,credit_code:code,address:addr})}).catch(()=>{});}else{showToast('该单位名称已存在');}}closeModal('addUnitModal');updateStats();renderUnits();}
-function deleteUnit(id){if(!hasPerm('units_delete')){showToast('删除单位功能已被管理员限制');return;}const u=DB.units.find(x=>x.id===id);DB.deleteUnit(id);updateStats();renderUnits();showToast('已删除');if(u)fetch('/api/units/name/'+encodeURIComponent(u.unit_name),{method:'DELETE'}).catch(()=>{});}
+function submitUnit(){const name=document.getElementById('unitName').value.trim(),code=document.getElementById('unitCode').value.trim(),addr=document.getElementById('unitAddr').value.trim();if(!name){showToast('请输入单位名称');return;}if(!code){showToast('请输入信用代码');return;}if(!addr){showToast('请输入地址');return;}if(editingUnitId){const oldUnit=DB.units.find(x=>x.id===editingUnitId);DB.updateUnit(editingUnitId,{unit_name:name,credit_code:code,address:addr});showToast('已更新');if(oldUnit)fetch('/api/units/name/'+encodeURIComponent(oldUnit.unit_name),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({unit_name:name,credit_code:code,address:addr})}).catch(()=>{});}else{if(DB.addUnit({unit_name:name,credit_code:code,address:addr})){showToast('添加成功');fetch('/api/units',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({unit_name:name,credit_code:code,address:addr})}).catch(()=>{});}else{showToast('该单位名称已存在');}}closeModal('addUnitModal');updateStats();renderUnits();}
+function deleteUnit(id){if(!hasPerm('units_delete')){showToast('删除单位功能已被管理员限制');return;}const u=DB.units.find(x=>x.id===id);DB.deleteUnit(id);updateStats();renderUnits();showToast('已删除');if(u){fetch('/api/units/name/'+encodeURIComponent(u.unit_name),{method:'DELETE'}).catch(()=>{});// 同步解绑该单位下的WiFi记录
+const affected=DB.wifiRecords.filter(r=>r.unit_name===u.unit_name);if(affected.length>0){affected.forEach(r=>{r.unit_id=null;r.unit_name='';});DB.saveWifi();const bssids=affected.map(r=>r.bssid);fetch('/api/wifi/bulk-bind',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({bssids:bssids,unit_name:''})}).catch(()=>{});}}}
 function triggerUnitImport(){if(!hasPerm('units_import')){showToast('导入功能已被管理员限制');return;}document.getElementById('unitFileInput').click();}
 function importUnitsXlsx(e){const file=e.target.files[0];e.target.value='';if(!file)return;const reader=new FileReader();reader.onload=function(ev){try{const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});const ws=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(ws,{header:1});if(rows.length<2){showToast('xlsx 文件格式不正确或无数据');return;}let cnt=0,skip=0;for(let i=1;i<rows.length;i++){const cols=rows[i];if(!cols||cols.length<3)continue;const name=String(cols[0]||'').trim(),code=String(cols[1]||'').trim(),addr=String(cols[2]||'').trim();if(!name)continue;if(DB.addUnit({unit_name:name,credit_code:code,address:addr})){cnt++;fetch('/api/units',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({unit_name:name,credit_code:code,address:addr})}).catch(()=>{});}else{skip++;}}updateStats();renderUnits();showToast('导入 '+cnt+' 条'+(skip>0?'（'+skip+' 条重复已跳过）':''));}catch(err){showToast('xlsx 解析失败: '+err.message);}};reader.readAsArrayBuffer(file);}
 function downloadUnitTemplate(){const headers=[['单位名称','统一社会信用代码','地址']];const ws=XLSX.utils.aoa_to_sheet(headers);ws['!cols']=[{wch:24},{wch:24},{wch:30}];const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'单位导入模板');saveXlsxFile(wb,'单位导入模板.xlsx');}

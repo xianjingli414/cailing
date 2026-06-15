@@ -282,6 +282,15 @@ def update_unit_server(uid, name, code, addr):
     return status == 200
 
 
+def update_unit_by_name_server(old_name, name, code, addr):
+    """按单位名称在服务器上修改单位"""
+    if not _auth_token:
+        return False
+    import urllib.parse
+    status, _ = _request("PUT", f"/api/units/name/{urllib.parse.quote(old_name, safe='')}", {"unit_name": name, "credit_code": code, "address": addr})
+    return status == 200
+
+
 def delete_unit_server(uid):
     """在服务器上删除单位"""
     if not _auth_token:

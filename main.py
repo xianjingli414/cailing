@@ -408,6 +408,23 @@ def api_units_update(uid):
         return jsonify({"success": False, "error": str(e)})
 
 
+@app.route('/api/units/name/<unit_name>', methods=['PUT'])
+def api_units_update_by_name(unit_name):
+    """按单位名称修改"""
+    try:
+        import api_client
+        data = request.get_json(force=True)
+        ok = api_client.update_unit_by_name_server(
+            unit_name,
+            data.get('unit_name', ''),
+            data.get('credit_code', ''),
+            data.get('address', '')
+        )
+        return jsonify({"success": ok})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
 @app.route('/api/units/<int:uid>', methods=['DELETE'])
 def api_units_delete(uid):
     """删除单位"""
@@ -627,7 +644,7 @@ def api_config_set():
 # ══════════════════════════════════════════════════════════
 
 def main():
-    print('[Cailing] === v15.0 Flask Server ===')
+    print('[Cailing] === v16.0 Flask Server ===')
     print(f'[Cailing] IS_ANDROID={IS_ANDROID}')
     print('[Cailing] WiFi扫描已改用Java原生WifiBridge，JS直接调用window.WifiBridge.scanWifi()')
 
