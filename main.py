@@ -263,7 +263,7 @@ def api_wifi_query():
     try:
         import api_client
         if not api_client.is_logged_in():
-            return jsonify({"records": [], "total": 0})
+            return jsonify({"records": [], "total": 0, "page": 1, "page_size": 50})
         ssid = request.args.get('ssid', '')
         bssid = request.args.get('bssid', '')
         band = request.args.get('band', '')
@@ -274,9 +274,9 @@ def api_wifi_query():
             ssid=ssid, bssid=bssid, band=band,
             unit_id=unit_id, page=page, page_size=page_size
         )
-        return jsonify({"records": records, "total": total})
+        return jsonify({"records": records, "total": total, "page": page, "page_size": page_size})
     except Exception as e:
-        return jsonify({"records": [], "total": 0, "error": str(e)})
+        return jsonify({"records": [], "total": 0, "page": 1, "page_size": 50, "error": str(e)})
 
 
 @app.route('/api/wifi/<int:wifi_id>/bind', methods=['PUT'])
@@ -314,6 +314,18 @@ def api_wifi_delete(wifi_id):
         ok = api_client.delete_wifi_server(wifi_id)
         return jsonify({"success": ok})
     except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
+@app.route('/api/wifi/bssid/<bssid>', methods=['DELETE'])
+def api_wifi_delete_by_bssid(bssid):
+    """按BSSID删除WiFi记录"""
+    try:
+        import api_client
+        ok = api_client.delete_wifi_by_bssid_server(bssid)
+        return jsonify({"success": ok})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
         return jsonify({"success": False, "error": str(e)})
 
 
@@ -358,9 +370,9 @@ def api_units_all():
     try:
         import api_client
         units = api_client.get_all_units_server()
-        return jsonify(units)
+        return jsonify({"units": units})
     except Exception:
-        return jsonify([])
+        return jsonify({"units": []})
 
 
 @app.route('/api/units', methods=['POST'])
@@ -402,6 +414,17 @@ def api_units_delete(uid):
     try:
         import api_client
         ok = api_client.delete_unit_server(uid)
+        return jsonify({"success": ok})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
+@app.route('/api/units/name/<unit_name>', methods=['DELETE'])
+def api_units_delete_by_name(unit_name):
+    """按单位名称删除"""
+    try:
+        import api_client
+        ok = api_client.delete_unit_by_name_server(unit_name)
         return jsonify({"success": ok})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
@@ -486,13 +509,13 @@ def api_wifi_sync():
         data = request.get_json(force=True)
         records = data.get('records', [])
         if not records:
-            return jsonify({"synced": False, "sync_ok": 0, "sync_skip": 0})
+            return jsonify({"ok": 0, "skip": 0, "update": 0})
         if api_client.is_logged_in():
             sync_ok, sync_skip = api_client.upload_wifi_records(records)
-            return jsonify({"synced": True, "sync_ok": sync_ok, "sync_skip": sync_skip})
-        return jsonify({"synced": False, "sync_ok": 0, "sync_skip": len(records)})
+            return jsonify({"ok": sync_ok, "skip": sync_skip, "update": 0})
+        return jsonify({"ok": 0, "skip": len(records), "update": 0})
     except Exception as e:
-        return jsonify({"synced": False, "error": str(e)})
+        return jsonify({"ok": 0, "skip": 0, "update": 0, "error": str(e)})
 
 
 # ══════════════════════════════════════════════════════════
@@ -563,12 +586,48 @@ def api_check_permissions():
         return jsonify({"granted": False, "error": str(e)})
 
 
+@app.route('/api/current-user', methods=['GET'])
+def api_current_user():
+    """获取当前登录用户信息"""
+    try:
+        import api_client
+        user = api_client.get_current_user()
+        if user:
+            return jsonify(user)
+        return jsonify({"error": "未登录"}), 401
+    except Exception as e:
+        return jsonify({"error": str(e)}), 401
+
+
+@app.route('/api/config', methods=['GET'])
+def api_config_get():
+    """获取配置"""
+    try:
+        import api_client
+        config = api_client.get_config_server()
+        return jsonify(config)
+    except Exception:
+        return jsonify({})
+
+
+@app.route('/api/config', methods=['PUT'])
+def api_config_set():
+    """设置配置"""
+    try:
+        import api_client
+        data = request.get_json(force=True)
+        ok = api_client.set_config_server(data)
+        return jsonify({"success": ok})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
 # ══════════════════════════════════════════════════════════
 #  启动
 # ══════════════════════════════════════════════════════════
 
 def main():
-    print('[Cailing] === v12.0 Flask Server ===')
+    print('[Cailing] === v14.0 Flask Server ===')
     print(f'[Cailing] IS_ANDROID={IS_ANDROID}')
     print('[Cailing] WiFi扫描已改用Java原生WifiBridge，JS直接调用window.WifiBridge.scanWifi()')
 

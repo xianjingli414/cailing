@@ -36,6 +36,12 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import android.os.Environment;
+import android.content.ContentValues;
+import android.provider.MediaStore;
+import android.os.ParcelFileDescriptor;
+import java.io.FileOutputStream;
+import java.io.OutputStream;
 import org.renpy.android.ResourceManager;
 // [CAILING PATCH] Import WifiBridge for native WiFi scanning
 import org.kivy.android.WifiBridge;
@@ -50,6 +56,9 @@ public class PythonActivity extends Activity {
     public static PythonActivity mActivity = null;
     // [CAILING PATCH] WifiBridge instance for JS-native WiFi scanning
     public static WifiBridge mWifiBridge = null;
+    // [CAILING PATCH] 文件选择回调
+    private static final int REQUEST_FILE_CHOOSER = 10101;
+    private android.webkit.ValueCallback<android.net.Uri[]> mFilePathCallback = null;
     public static boolean mOpenExternalLinksInBrowser = false;
 
     /** If shared libraries (e.g. SDL or the native application) could not be loaded. */
@@ -222,6 +231,60 @@ public class PythonActivity extends Activity {
                         .setOnCancelListener(dialog -> result.confirm())
                         .show();
                     return true;
+                }
+                // [CAILING PATCH] 支持 <input type="file"> 文件选择
+                @Override
+                public boolean onShowFileChooser(WebView webView, android.webkit.ValueCallback<android.net.Uri[]> filePathCallback, FileChooserParams fileChooserParams) {
+                    mFilePathCallback = filePathCallback;
+                    Intent intent = fileChooserParams.createIntent();
+                    try {
+                        startActivityForResult(intent, REQUEST_FILE_CHOOSER);
+                    } catch (Exception e) {
+                        mFilePathCallback = null;
+                        return false;
+                    }
+                    return true;
+                }
+            });
+            // [CAILING PATCH] 支持文件下载（XLSX.writeFile等触发）
+            mWebView.setDownloadListener((url, userAgent, contentDisposition, mimetype, contentLength) -> {
+                try {
+                    // 从URL中提取文件名
+                    String filename = android.webkit.URLUtil.guessFileName(url, contentDisposition, mimetype);
+                    // 保存到Downloads目录
+                    if (android.os.Build.VERSION.SDK_INT >= 29) {
+                        ContentValues values = new ContentValues();
+                        values.put(MediaStore.Downloads.DISPLAY_NAME, filename);
+                        values.put(MediaStore.Downloads.MIME_TYPE, mimetype != null ? mimetype : "application/octet-stream");
+                        values.put(MediaStore.Downloads.IS_PENDING, 1);
+                        android.net.Uri uri = getContentResolver().insert(MediaStore.Downloads.getContentUri("external_primary"), values);
+                        if (uri != null) {
+                            OutputStream os = getContentResolver().openOutputStream(uri);
+                            java.net.URL downloadUrl = new java.net.URL(url);
+                            InputStream is = downloadUrl.openStream();
+                            byte[] buffer = new byte[8192];
+                            int len;
+                            while ((len = is.read(buffer)) > 0) os.write(buffer, 0, len);
+                            os.close(); is.close();
+                            values.clear(); values.put(MediaStore.Downloads.IS_PENDING, 0);
+                            getContentResolver().update(uri, values, null, null);
+                            runOnUiThread(() -> Toast.makeText(PythonActivity.mActivity, "已保存到下载目录: " + filename, Toast.LENGTH_LONG).show());
+                        }
+                    } else {
+                        File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                        File file = new File(dir, filename);
+                        java.net.URL downloadUrl = new java.net.URL(url);
+                        InputStream is = downloadUrl.openStream();
+                        FileOutputStream fos = new FileOutputStream(file);
+                        byte[] buffer = new byte[8192];
+                        int len;
+                        while ((len = is.read(buffer)) > 0) fos.write(buffer, 0, len);
+                        fos.close(); is.close();
+                        runOnUiThread(() -> Toast.makeText(PythonActivity.mActivity, "已保存到: " + file.getAbsolutePath(), Toast.LENGTH_LONG).show());
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "Download error: " + e.getMessage());
+                    runOnUiThread(() -> Toast.makeText(PythonActivity.mActivity, "下载失败: " + e.getMessage(), Toast.LENGTH_LONG).show());
                 }
             });
             mLayout = new AbsoluteLayout(PythonActivity.mActivity);
@@ -465,6 +528,25 @@ public class PythonActivity extends Activity {
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent intent) {
+        // [CAILING PATCH] 处理文件选择结果
+        if (requestCode == REQUEST_FILE_CHOOSER && mFilePathCallback != null) {
+            android.net.Uri[] results = null;
+            if (resultCode == RESULT_OK && intent != null) {
+                android.net.Uri data = intent.getData();
+                if (data != null) {
+                    results = new android.net.Uri[]{data};
+                } else if (intent.getClipData() != null) {
+                    int count = intent.getClipData().getItemCount();
+                    results = new android.net.Uri[count];
+                    for (int i = 0; i < count; i++) {
+                        results[i] = intent.getClipData().getItemAt(i).getUri();
+                    }
+                }
+            }
+            mFilePathCallback.onReceiveValue(results);
+            mFilePathCallback = null;
+            return;
+        }
         if (this.activityResultListeners == null) return;
         this.onResume();
         synchronized (this.activityResultListeners) {

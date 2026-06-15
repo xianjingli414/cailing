@@ -156,13 +156,13 @@ def get_current_user_info():
 
 def upload_wifi_records(records):
     """
-    上传WiFi采集记录到服务器
-    records: list of dict [{ssid, bssid, signal, channel, encrypt_type, band, vendor}]
+    上传WiFi采集记录到服务器（使用sync接口）
+    records: list of dict [{ssid, bssid, signal, channel, encrypt_type, band, vendor, latitude, longitude, unit_name}]
     返回: (成功数, 跳过数)
     """
     if not _auth_token:
         return 0, len(records)
-    status, data = _request("POST", "/api/wifi", {"records": records})
+    status, data = _request("POST", "/api/wifi/sync", {"records": records})
     if status == 200 and data:
         return data.get("ok", 0), data.get("skip", 0)
     return 0, len(records)
@@ -196,6 +196,15 @@ def delete_wifi_server(wifi_id):
     if not _auth_token:
         return False
     status, _ = _request("DELETE", f"/api/wifi/{wifi_id}")
+    return status == 200
+
+
+def delete_wifi_by_bssid_server(bssid):
+    """按BSSID从服务器删除WiFi记录"""
+    if not _auth_token:
+        return False
+    import urllib.parse
+    status, _ = _request("DELETE", f"/api/wifi/bssid/{urllib.parse.quote(bssid, safe='')}")
     return status == 200
 
 
@@ -250,6 +259,8 @@ def get_all_units_server():
     if not _auth_token:
         return []
     status, data = _request("GET", "/api/units/all")
+    if status == 200 and isinstance(data, dict):
+        return data.get("units", [])
     if status == 200 and isinstance(data, list):
         return data
     return []
@@ -276,6 +287,15 @@ def delete_unit_server(uid):
     if not _auth_token:
         return False
     status, _ = _request("DELETE", f"/api/units/{uid}")
+    return status == 200
+
+
+def delete_unit_by_name_server(unit_name):
+    """按单位名称从服务器删除单位"""
+    if not _auth_token:
+        return False
+    import urllib.parse
+    status, _ = _request("DELETE", f"/api/units/name/{urllib.parse.quote(unit_name, safe='')}")
     return status == 200
 
 
