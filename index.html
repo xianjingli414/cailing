@@ -422,38 +422,7 @@ const DB = {
   // 从服务器拉取最新数据合并到本地（以bssid/unit_name为唯一键去重）
   async syncFromServer() {
     try {
-      // 拉取WiFi记录
-      const wifiResp = await fetch('/api/wifi?page_size=9999');
-      const wifiData = await wifiResp.json();
-      if (wifiData.records && wifiData.records.length > 0) {
-        let newCnt = 0, updateCnt = 0;
-        for (const r of wifiData.records) {
-          const existing = this.wifiRecords.find(x => x.bssid === r.bssid);
-          if (!existing) {
-            this.wifiRecords.unshift({
-              ssid: r.ssid || '', bssid: r.bssid, signal: r.signal || 0,
-              channel: r.channel || 0, encrypt_type: r.encrypt_type || '未知',
-              band: r.band || '2.4G', vendor: r.vendor || '未知',
-              collect_time: r.collect_time || new Date().toLocaleString('zh-CN'),
-              unit_id: r.unit_id || null, unit_name: r.unit_name || '',
-              exported: false, id: this._nextWifiId++
-            });
-            newCnt++;
-          } else {
-            // 已存在：如果服务器有绑定信息而本地没有，则更新
-            if (r.unit_id && !existing.unit_id) {
-              existing.unit_id = r.unit_id;
-              existing.unit_name = r.unit_name || '';
-              updateCnt++;
-            }
-          }
-        }
-        if (newCnt > 0 || updateCnt > 0) {
-          this.saveWifi();
-          console.log('syncFromServer: +' + newCnt + ' new, ~' + updateCnt + ' updated');
-        }
-      }
-      // 拉取单位数据
+      // 先拉取单位数据（WiFi绑定需要按unit_name匹配本地unit_id）
       const unitResp = await fetch('/api/units/all');
       const unitData = await unitResp.json();
       if (unitData.units && unitData.units.length > 0) {
@@ -473,6 +442,43 @@ const DB = {
           console.log('syncFromServer: +' + newUnits + ' new units');
         }
       }
+      // 拉取WiFi记录
+      const wifiResp = await fetch('/api/wifi?page_size=9999');
+      const wifiData = await wifiResp.json();
+      if (wifiData.records && wifiData.records.length > 0) {
+        let newCnt = 0, updateCnt = 0;
+        for (const r of wifiData.records) {
+          // 按unit_name匹配本地单位ID（服务器unit_id与本地不同）
+          let localUnitId = null;
+          if (r.unit_name) {
+            const localUnit = this.units.find(x => x.unit_name === r.unit_name);
+            if (localUnit) localUnitId = localUnit.id;
+          }
+          const existing = this.wifiRecords.find(x => x.bssid === r.bssid);
+          if (!existing) {
+            this.wifiRecords.unshift({
+              ssid: r.ssid || '', bssid: r.bssid, signal: r.signal || 0,
+              channel: r.channel || 0, encrypt_type: r.encrypt_type || '未知',
+              band: r.band || '2.4G', vendor: r.vendor || '未知',
+              collect_time: r.collect_time || new Date().toLocaleString('zh-CN'),
+              unit_id: localUnitId, unit_name: r.unit_name || '',
+              exported: false, id: this._nextWifiId++
+            });
+            newCnt++;
+          } else {
+            // 已存在：如果服务器有绑定信息而本地没有，则更新
+            if (r.unit_name && !existing.unit_name) {
+              existing.unit_id = localUnitId;
+              existing.unit_name = r.unit_name || '';
+              updateCnt++;
+            }
+          }
+        }
+        if (newCnt > 0 || updateCnt > 0) {
+          this.saveWifi();
+          console.log('syncFromServer: +' + newCnt + ' new, ~' + updateCnt + ' updated');
+        }
+      }
       // 将本地独有的数据推送到服务器
       await this.syncToServer();
     } catch (e) { console.warn('syncFromServer failed:', e); }
@@ -487,9 +493,16 @@ const DB = {
       const serverBssids = new Set((wifiData.records || []).map(r => r.bssid));
       const localOnly = this.wifiRecords.filter(r => !serverBssids.has(r.bssid));
       if (localOnly.length > 0) {
+        // 推送时清除本地unit_id（避免与服务器ID不一致），只传unit_name让后端按名称匹配
+        const pushRecords = localOnly.map(r => ({
+          ssid: r.ssid, bssid: r.bssid, signal: r.signal,
+          channel: r.channel, encrypt_type: r.encrypt_type,
+          band: r.band, vendor: r.vendor, collect_time: r.collect_time,
+          unit_name: r.unit_name || ''
+        }));
         await fetch('/api/wifi/sync', {
           method: 'POST', headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({records: localOnly})
+          body: JSON.stringify({records: pushRecords})
         });
         console.log('syncToServer: pushed ' + localOnly.length + ' wifi records');
       }
@@ -830,7 +843,7 @@ function openScanDetail(bssid) {
   openModal('wifiDetailModal');
 }
 function dRow(l,v) { return '<div class="detail-row"><div class="detail-label">'+l+'</div><div class="detail-value">'+v+'</div></div>'; }
-function saveCurrentWifi() { if (!currentWifi) return; if(DB.addWifi({...currentWifi})){showToast('已保存到记录库');updateStats();renderScanList();fetch('/api/wifi/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({records:[currentWifi]})}).catch(()=>{});}else{showToast('该 WiFi 已在记录库中');} closeModal('wifiDetailModal'); }
+function saveCurrentWifi() { if (!currentWifi) return; if(DB.addWifi({...currentWifi})){showToast('已保存到记录库');updateStats();renderScanList();const syncRec={ssid:currentWifi.ssid,bssid:currentWifi.bssid,signal:currentWifi.signal,channel:currentWifi.channel,encrypt_type:currentWifi.encrypt_type,band:currentWifi.band,vendor:currentWifi.vendor};fetch('/api/wifi/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({records:[syncRec]})}).catch(()=>{});}else{showToast('该 WiFi 已在记录库中');} closeModal('wifiDetailModal'); }
 
 // ══════════════════════ BATCH BAR ══════════════════════
 function updateBatchBar() {
@@ -840,7 +853,7 @@ function updateBatchBar() {
     document.getElementById('batchBindBtn').style.display = hasPerm('scan_bind') ? '' : 'none';
   } else { bar.classList.remove('visible'); }
 }
-function batchSave(){if(currentPage!=='scan'||selectedBssids.size===0)return;let saved=0,skip=0;const syncRecs=[];[...selectedBssids].forEach(bssid=>{const r=scanResultMap[bssid];if(r){if(DB.addWifi({...r})){saved++;syncRecs.push(r);}else{skip++;}}});updateStats();renderScanList();showToast('已保存 '+saved+' 条'+(skip>0?'（'+skip+' 条已存在）':''));if(syncRecs.length>0)fetch('/api/wifi/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({records:syncRecs})}).catch(()=>{});}
+function batchSave(){if(currentPage!=='scan'||selectedBssids.size===0)return;let saved=0,skip=0;const syncRecs=[];[...selectedBssids].forEach(bssid=>{const r=scanResultMap[bssid];if(r){if(DB.addWifi({...r})){saved++;syncRecs.push({ssid:r.ssid,bssid:r.bssid,signal:r.signal,channel:r.channel,encrypt_type:r.encrypt_type,band:r.band,vendor:r.vendor});}else{skip++;}}});updateStats();renderScanList();showToast('已保存 '+saved+' 条'+(skip>0?'（'+skip+' 条已存在）':''));if(syncRecs.length>0)fetch('/api/wifi/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({records:syncRecs})}).catch(()=>{});}
 function batchBind(){if(currentPage!=='scan'||selectedBssids.size===0||!hasPerm('scan_bind'))return;[...selectedBssids].forEach(bssid=>{const r=scanResultMap[bssid];if(r&&!DB.wifiRecords.find(x=>x.bssid===bssid))DB.addWifi({...r});});updateStats();document.getElementById('bindTitle').textContent='绑定单位';document.getElementById('bindSubtitle').textContent='将 '+selectedBssids.size+' 条 WiFi 统一绑定到：';document.getElementById('bindUnitSearch').value='';renderBindUnitList();openModal('bindUnitModal');}
 function doBind(unitId) {
   const bssids=[...selectedBssids];
@@ -869,8 +882,8 @@ function _executeBind(bssids, unitId, u) {
   const cnt=DB.bulkBindByBssid(bssids,unitId);
   closeModal('bindUnitModal');
   selectedBssids.clear(); renderScanList(); showToast('已将 '+cnt+' 条 WiFi 绑定到「'+(u?u.unit_name:'')+'」');
-  // 同步绑定到服务器
-  fetch('/api/wifi/bulk-bind',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({bssids:bssids,unit_id:unitId})}).catch(()=>{});
+  // 同步绑定到服务器（传 unit_name 避免本地ID与服务器ID不一致）
+  fetch('/api/wifi/bulk-bind',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({bssids:bssids,unit_name:u?u.unit_name:'',unit_id:unitId})}).catch(()=>{});
 }
 let _pendingBindUnitId = null, _pendingBindBssids = [];
 function confirmRebind() {
@@ -906,7 +919,7 @@ function renderRecords() {
 }
 function toggleRecordItem(id,el){if(selectedRecordIds.has(id)){selectedRecordIds.delete(id);el.classList.remove('checked');}else{selectedRecordIds.add(id);el.classList.add('checked');}renderRecords();}
 function toggleRecordSelectAll(){const q=document.getElementById('recordSearch').value.toLowerCase();let rows=DB.wifiRecords.filter(r=>{if(q&&!r.ssid.toLowerCase().includes(q)&&!r.bssid.toLowerCase().includes(q)) return false;if(recordFilter==='2.4G'&&r.band!=='2.4G') return false;if(recordFilter==='5G'&&r.band!=='5G') return false;if(recordFilter==='bound'&&!r.unit_id) return false;if(recordFilter==='unbound'&&r.unit_id) return false;if(recordFilter==='exported'&&!r.exported) return false;if(recordFilter==='unexported'&&r.exported) return false;return true;});if(selectedRecordIds.size===rows.length) selectedRecordIds.clear();else rows.forEach(r=>selectedRecordIds.add(r.id));renderRecords();}
-function deleteRecord(id){if(!hasPerm('records_delete')){showToast('删除记录功能已被管理员限制');return;}selectedRecordIds.delete(id);DB.deleteWifi(id);updateStats();renderScanList();renderRecords();showToast('已删除');fetch('/api/wifi/'+id,{method:'DELETE'}).catch(()=>{});}
+function deleteRecord(id){if(!hasPerm('records_delete')){showToast('删除记录功能已被管理员限制');return;}const r=DB.wifiRecords.find(x=>x.id===id);selectedRecordIds.delete(id);DB.deleteWifi(id);updateStats();renderScanList();renderRecords();showToast('已删除');if(r)fetch('/api/wifi/bssid/'+r.bssid,{method:'DELETE'}).catch(()=>{});}
 function exportSelectedRecords(){if(!hasPerm('records_export')){showToast('导出功能已被管理员限制');return;}if(!selectedRecordIds.size){showToast('请先勾选要导出的记录');return;}const rows=DB.wifiRecords.filter(r=>selectedRecordIds.has(r.id));if(!rows.length){showToast('未找到选中记录');return;}const headers=['ID','SSID','BSSID','信号(dBm)','信道','加密方式','频段','厂商','采集时间','关联单位'];const keys=['id','ssid','bssid','signal','channel','encrypt_type','band','vendor','collect_time','unit_name'];const data=[headers,...rows.map(r=>keys.map(k=>String(r[k]||'')))];const ws=XLSX.utils.aoa_to_sheet(data);ws['!cols']=[{wch:6},{wch:24},{wch:20},{wch:10},{wch:6},{wch:12},{wch:6},{wch:12},{wch:20},{wch:16}];const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'WiFi记录');XLSX.writeFile(wb,'wifi_export_'+new Date().toLocaleDateString('zh-CN').replace(/\//g,'-')+'.xlsx');rows.forEach(r=>r.exported=true);DB.saveWifi();showToast('已导出 '+rows.length+' 条记录');renderRecords();}
 
 // ══════════════════════ UNITS ══════════════════════
@@ -923,7 +936,7 @@ function renderUnits(){document.getElementById('unitsSubtitle').textContent='共
 function showAddUnit(){if(!hasPerm('units_add')){showToast('添加单位功能已被管理员限制');return;}editingUnitId=null;document.getElementById('unitModalTitle').textContent='添加单位';['unitName','unitCode','unitAddr'].forEach(id=>document.getElementById(id).value='');openModal('addUnitModal');}
 function editUnit(id){if(!hasPerm('units_edit')){showToast('编辑单位功能已被管理员限制');return;}const u=DB.units.find(x=>x.id===id);if(!u)return;editingUnitId=id;document.getElementById('unitModalTitle').textContent='编辑单位';document.getElementById('unitName').value=u.unit_name;document.getElementById('unitCode').value=u.credit_code;document.getElementById('unitAddr').value=u.address;openModal('addUnitModal');}
 function submitUnit(){const name=document.getElementById('unitName').value.trim(),code=document.getElementById('unitCode').value.trim(),addr=document.getElementById('unitAddr').value.trim();if(!name){showToast('请输入单位名称');return;}if(!code){showToast('请输入信用代码');return;}if(!addr){showToast('请输入地址');return;}if(editingUnitId){DB.updateUnit(editingUnitId,{unit_name:name,credit_code:code,address:addr});showToast('已更新');fetch('/api/units/'+editingUnitId,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({unit_name:name,credit_code:code,address:addr})}).catch(()=>{});}else{if(DB.addUnit({unit_name:name,credit_code:code,address:addr})){showToast('添加成功');fetch('/api/units',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({unit_name:name,credit_code:code,address:addr})}).catch(()=>{});}else{showToast('该单位名称已存在');}}closeModal('addUnitModal');updateStats();renderUnits();}
-function deleteUnit(id){if(!hasPerm('units_delete')){showToast('删除单位功能已被管理员限制');return;}const u=DB.units.find(x=>x.id===id);DB.deleteUnit(id);updateStats();renderUnits();showToast('已删除');if(u)fetch('/api/units/'+u.id,{method:'DELETE'}).catch(()=>{});}
+function deleteUnit(id){if(!hasPerm('units_delete')){showToast('删除单位功能已被管理员限制');return;}const u=DB.units.find(x=>x.id===id);DB.deleteUnit(id);updateStats();renderUnits();showToast('已删除');if(u)fetch('/api/units/name/'+encodeURIComponent(u.unit_name),{method:'DELETE'}).catch(()=>{});}
 function triggerUnitImport(){if(!hasPerm('units_import')){showToast('导入功能已被管理员限制');return;}document.getElementById('unitFileInput').click();}
 function importUnitsXlsx(e){const file=e.target.files[0];e.target.value='';if(!file)return;const reader=new FileReader();reader.onload=function(ev){try{const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});const ws=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(ws,{header:1});if(rows.length<2){showToast('xlsx 文件格式不正确或无数据');return;}let cnt=0,skip=0;for(let i=1;i<rows.length;i++){const cols=rows[i];if(!cols||cols.length<3)continue;const name=String(cols[0]||'').trim(),code=String(cols[1]||'').trim(),addr=String(cols[2]||'').trim();if(!name)continue;if(DB.addUnit({unit_name:name,credit_code:code,address:addr})){cnt++;fetch('/api/units',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({unit_name:name,credit_code:code,address:addr})}).catch(()=>{});}else{skip++;}}updateStats();renderUnits();showToast('导入 '+cnt+' 条'+(skip>0?'（'+skip+' 条重复已跳过）':''));}catch(err){showToast('xlsx 解析失败: '+err.message);}};reader.readAsArrayBuffer(file);}
 function triggerWifiImport(){if(!hasPerm('records_export')){showToast('导入功能已被管理员限制');return;}document.getElementById('wifiFileInput').click();}
