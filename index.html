@@ -35,6 +35,7 @@
   .nav-item.active { color:var(--primary); }
   .nav-item svg { width:22px; height:22px; }
   .nav-item.nav-hidden { display:none; }
+  .app-only { } /* JS会在网页端隐藏 */
   .page-header { background:#fff; padding:16px; border-bottom:1px solid var(--border); position:sticky; top:0; z-index:50; display:flex; align-items:center; gap:10px; }
   .page-title { font-size:18px; font-weight:600; margin:0; flex:1; }
   .page-subtitle { font-size:13px; color:var(--text2); margin:4px 0 0; }
@@ -217,13 +218,10 @@
     <div class="filter-chip active" onclick="setRecordFilter('all',this)">全部</div>
     <div class="filter-chip" onclick="setRecordFilter('2.4G',this)">2.4G</div>
     <div class="filter-chip" onclick="setRecordFilter('5G',this)">5G</div>
-    <div class="filter-chip" onclick="setRecordFilter('bound',this)">已绑单位</div>
-    <div class="filter-chip" onclick="setRecordFilter('unbound',this)">未绑单位</div>
-    <div class="filter-chip" onclick="setRecordFilter('exported',this)">已导出</div>
-    <div class="filter-chip" onclick="setRecordFilter('unexported',this)">未导出</div>
   </div>
   <div class="export-bar" id="recordExportBar">
     <span class="export-count" id="exportCountLabel">可选择记录后导出</span>
+    <button class="btn btn-sm btn-outline" onclick="downloadWifiTemplate()">下载模板</button>
     <button class="btn btn-sm btn-outline" onclick="triggerWifiImport()">导入</button>
     <button class="btn btn-sm btn-outline" onclick="toggleRecordSelectAll()">全选</button>
     <button class="btn btn-sm btn-primary" onclick="exportSelectedRecords()"><svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:none;stroke:#fff;stroke-width:2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>导出所选</button>
@@ -234,7 +232,7 @@
 
 <!-- ══════════════ UNITS ══════════════ -->
 <div class="page" id="page-units">
-  <div class="page-header"><div><p class="page-title">单位管理</p><p class="page-subtitle" id="unitsSubtitle">共 0 个单位</p></div><button class="btn btn-sm btn-outline" id="unitImportBtn" onclick="triggerUnitImport()" style="display:none">导入</button></div>
+  <div class="page-header"><div><p class="page-title">单位管理</p><p class="page-subtitle" id="unitsSubtitle">共 0 个单位</p></div><div style="display:flex;gap:6px"><button class="btn btn-sm btn-outline" onclick="downloadUnitTemplate()">下载模板</button><button class="btn btn-sm btn-outline" id="unitImportBtn" onclick="triggerUnitImport()" style="display:none">导入</button></div></div>
   <div class="search-wrap"><div class="search-inner"><svg class="search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input class="search-input" id="unitSearch" placeholder="搜索单位名称或信用代码..." oninput="renderUnits()"></div></div>
   <div class="card card-last" id="unitList" style="margin-top:8px"><div class="empty"><svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg><p>暂无单位数据</p></div></div>
   <button class="fab" id="unitFab" onclick="showAddUnit()"><svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
@@ -250,7 +248,7 @@
     <div class="login-sub">管理员可添加用户并分配操作权限</div>
     <div class="form-item"><div class="form-label">账号</div><input class="form-input" id="loginUser" placeholder="请输入账号"></div>
     <div class="form-item"><div class="form-label">密码</div><input class="form-input" id="loginPass" type="password" placeholder="请输入密码"></div>
-    <div class="form-actions"><button class="btn btn-ghost" onclick="skipLogin()">游客模式</button><button class="btn btn-primary" onclick="doLogin()">登录</button></div>
+    <div class="form-actions"><button class="btn btn-primary" onclick="doLogin()" style="flex:1">登录</button></div>
   </div>
 
   <div id="loggedInPanel" style="display:none">
@@ -264,7 +262,7 @@
 
     <!-- module coarse toggles (admin only) -->
     <div class="card" id="moduleToggleCard" style="display:none">
-      <div class="section-title">模块可见性（游客/普通用户）</div>
+      <div class="section-title">模块可见性（普通用户）</div>
       <div id="moduleToggles"></div>
     </div>
 
@@ -286,7 +284,7 @@
 </div><!-- /pages -->
 
 <nav class="nav pb-safe">
-  <button class="nav-item active" id="nav-scan" onclick="switchPage('scan')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="currentColor"/></svg>扫描</button>
+  <button class="nav-item active app-only" id="nav-scan" onclick="switchPage('scan')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="currentColor"/></svg>扫描</button>
   <button class="nav-item" id="nav-records" onclick="switchPage('records')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>记录</button>
   <button class="nav-item" id="nav-units" onclick="switchPage('units')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg>单位</button>
   <button class="nav-item" id="nav-mine" onclick="switchPage('mine')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-7 8-7s8 3 8 7"/></svg>我的</button>
@@ -598,8 +596,8 @@ function switchPage(p) {
   currentPage = p;
   document.getElementById('page-' + p).classList.add('active');
   document.getElementById('nav-' + p).classList.add('active');
-  if (p === 'records') renderRecords();
-  if (p === 'units') renderUnits();
+  if (p === 'records') { DB.syncFromServer().then(()=>renderRecords()).catch(()=>{}); renderRecords(); }
+  if (p === 'units') { DB.syncFromServer().then(()=>renderUnits()).catch(()=>{}); renderUnits(); }
   if (p === 'mine') renderMine();
   document.getElementById('page-' + p).scrollTop = 0;
   updateBatchBar();
@@ -615,7 +613,7 @@ function applyModuleVisibility() {
 // ══════════════════════ SCAN ══════════════════════
 let scanFilter = 'all', scanResults = [], scanning = false, currentWifi = null, selectedBssids = new Set(), scanResultMap = {};
 let _autoRefreshTimer = null, _autoRefreshInterval = 15000; // 15秒自动刷新
-let _syncTimer = null, _syncInterval = 30000; // 30秒自动同步服务器数据
+let _syncTimer = null, _syncInterval = 10000; // 10秒自动同步服务器数据
 
 function setScanFilter(f, el) { scanFilter = f; document.querySelectorAll('#filterRow .filter-chip').forEach(c => c.classList.remove('active')); el.classList.add('active'); renderScanList(); }
 
@@ -921,21 +919,23 @@ updateStats();
 let recordFilter='all', selectedRecordIds=new Set();
 function setRecordFilter(f,el) { if (!hasPerm('records_filter') && f !== 'all') { showToast('筛选功能已被管理员限制'); return; } recordFilter=f; document.querySelectorAll('#recordFilterRow .filter-chip').forEach(c=>c.classList.remove('active')); el.classList.add('active'); renderRecords(); }
 function renderRecords() {
-  document.getElementById('recordsSubtitle').textContent='共 '+DB.wifiRecords.length+' 条记录';
+  // 仅显示已绑定单位的WiFi记录
+  const boundRecords = DB.wifiRecords.filter(r => r.unit_name);
+  document.getElementById('recordsSubtitle').textContent='共 '+boundRecords.length+' 条绑定记录';
   const q=document.getElementById('recordSearch').value.toLowerCase();
-  let rows=DB.wifiRecords.filter(r=>{if(q&&!r.ssid.toLowerCase().includes(q)&&!r.bssid.toLowerCase().includes(q)&&!(r.unit_name&&r.unit_name.toLowerCase().includes(q))) return false; if(recordFilter==='2.4G'&&r.band!=='2.4G') return false; if(recordFilter==='5G'&&r.band!=='5G') return false; if(recordFilter==='bound'&&!r.unit_id) return false; if(recordFilter==='unbound'&&r.unit_id) return false; if(recordFilter==='exported'&&!r.exported) return false; if(recordFilter==='unexported'&&r.exported) return false; return true; });
+  let rows=boundRecords.filter(r=>{if(q&&!r.ssid.toLowerCase().includes(q)&&!r.bssid.toLowerCase().includes(q)&&!(r.unit_name&&r.unit_name.toLowerCase().includes(q))) return false; if(recordFilter==='2.4G'&&r.band!=='2.4G') return false; if(recordFilter==='5G'&&r.band!=='5G') return false; return true; });
   const list=document.getElementById('recordList');
   if(!rows.length){list.innerHTML='<div class="empty"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg><p>暂无匹配记录</p></div>';document.getElementById('exportCountLabel').textContent='可选择记录后导出';return; }
   document.getElementById('exportCountLabel').textContent='共 '+rows.length+' 条 · 选中 '+selectedRecordIds.size;
   document.getElementById('recordExportBar').style.display = hasPerm('records_export') ? '' : 'none';
   document.getElementById('recordFilterRow').style.display = hasPerm('records_filter') ? '' : 'none';
-  let html=''; for(const r of rows){ const checked=selectedRecordIds.has(r.id)?' checked':'', boundTag=r.unit_name?'<span class="tag tag-green">'+r.unit_name+'</span>':'<span class="tag tag-gray">未绑定</span>', exportTag=r.exported?'<span class="tag tag-blue">已导出</span>':'';
+  let html=''; for(const r of rows){ const checked=selectedRecordIds.has(r.id)?' checked':'', boundTag=r.unit_name?'<span class="tag tag-green">'+r.unit_name+'</span>':'', exportTag=r.exported?'<span class="tag tag-blue">已导出</span>':'';
     const delBtn = hasPerm('records_delete') ? '<button class="btn btn-xs" style="background:#fff2f0;color:var(--danger)" onclick="deleteRecord('+r.id+')">删除</button>' : '';
     html+='<div class="wifi-item'+checked+'" data-wifi-id="'+r.id+'"><div class="wifi-cb" onclick="toggleRecordItem('+r.id+',this.parentElement)"><div class="wifi-cb-inner"></div></div><div class="wifi-icon"><svg viewBox="0 0 24 24"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="var(--primary)"/></svg></div><div class="wifi-body" style="cursor:default"><div class="wifi-ssid">'+(r.ssid||'&lt;隐藏网络&gt;')+'</div><div class="wifi-meta">'+r.bssid+' · '+r.band+' · '+r.signal+' dBm'+(r.latitude&&r.longitude?' · '+r.latitude.toFixed(6)+','+r.longitude.toFixed(6):'')+'</div><div class="wifi-tags">'+boundTag+exportTag+'</div></div><div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end"><span style="font-size:11px;color:var(--text3)">'+r.collect_time+'</span>'+delBtn+'</div></div>'; }
   list.innerHTML=html;
 }
 function toggleRecordItem(id,el){if(selectedRecordIds.has(id)){selectedRecordIds.delete(id);el.classList.remove('checked');}else{selectedRecordIds.add(id);el.classList.add('checked');}renderRecords();}
-function toggleRecordSelectAll(){const q=document.getElementById('recordSearch').value.toLowerCase();let rows=DB.wifiRecords.filter(r=>{if(q&&!r.ssid.toLowerCase().includes(q)&&!r.bssid.toLowerCase().includes(q)) return false;if(recordFilter==='2.4G'&&r.band!=='2.4G') return false;if(recordFilter==='5G'&&r.band!=='5G') return false;if(recordFilter==='bound'&&!r.unit_id) return false;if(recordFilter==='unbound'&&r.unit_id) return false;if(recordFilter==='exported'&&!r.exported) return false;if(recordFilter==='unexported'&&r.exported) return false;return true;});if(selectedRecordIds.size===rows.length) selectedRecordIds.clear();else rows.forEach(r=>selectedRecordIds.add(r.id));renderRecords();}
+function toggleRecordSelectAll(){const q=document.getElementById('recordSearch').value.toLowerCase();let rows=DB.wifiRecords.filter(r=>{if(!r.unit_name)return false;if(q&&!r.ssid.toLowerCase().includes(q)&&!r.bssid.toLowerCase().includes(q)&&!(r.unit_name&&r.unit_name.toLowerCase().includes(q))) return false;if(recordFilter==='2.4G'&&r.band!=='2.4G') return false;if(recordFilter==='5G'&&r.band!=='5G') return false;return true;});if(selectedRecordIds.size===rows.length) selectedRecordIds.clear();else rows.forEach(r=>selectedRecordIds.add(r.id));renderRecords();}
 function deleteRecord(id){if(!hasPerm('records_delete')){showToast('删除记录功能已被管理员限制');return;}const r=DB.wifiRecords.find(x=>x.id===id);selectedRecordIds.delete(id);DB.deleteWifi(id);updateStats();renderScanList();renderRecords();showToast('已删除');if(r)fetch('/api/wifi/bssid/'+r.bssid,{method:'DELETE'}).catch(()=>{});}
 function exportSelectedRecords(){if(!hasPerm('records_export')){showToast('导出功能已被管理员限制');return;}if(!selectedRecordIds.size){showToast('请先勾选要导出的记录');return;}const rows=DB.wifiRecords.filter(r=>selectedRecordIds.has(r.id));if(!rows.length){showToast('未找到选中记录');return;}const headers=['ID','SSID','BSSID','信号(dBm)','信道','加密方式','频段','厂商','采集时间','关联单位','纬度','经度'];const keys=['id','ssid','bssid','signal','channel','encrypt_type','band','vendor','collect_time','unit_name','latitude','longitude'];const data=[headers,...rows.map(r=>keys.map(k=>String(r[k]||'')))];const ws=XLSX.utils.aoa_to_sheet(data);ws['!cols']=[{wch:6},{wch:24},{wch:20},{wch:10},{wch:6},{wch:12},{wch:6},{wch:12},{wch:20},{wch:16},{wch:12},{wch:12}];const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'WiFi记录');XLSX.writeFile(wb,'wifi_export_'+new Date().toLocaleDateString('zh-CN').replace(/\//g,'-')+'.xlsx');rows.forEach(r=>r.exported=true);DB.saveWifi();showToast('已导出 '+rows.length+' 条记录');renderRecords();}
 
@@ -956,6 +956,8 @@ function submitUnit(){const name=document.getElementById('unitName').value.trim(
 function deleteUnit(id){if(!hasPerm('units_delete')){showToast('删除单位功能已被管理员限制');return;}const u=DB.units.find(x=>x.id===id);DB.deleteUnit(id);updateStats();renderUnits();showToast('已删除');if(u)fetch('/api/units/name/'+encodeURIComponent(u.unit_name),{method:'DELETE'}).catch(()=>{});}
 function triggerUnitImport(){if(!hasPerm('units_import')){showToast('导入功能已被管理员限制');return;}document.getElementById('unitFileInput').click();}
 function importUnitsXlsx(e){const file=e.target.files[0];e.target.value='';if(!file)return;const reader=new FileReader();reader.onload=function(ev){try{const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});const ws=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(ws,{header:1});if(rows.length<2){showToast('xlsx 文件格式不正确或无数据');return;}let cnt=0,skip=0;for(let i=1;i<rows.length;i++){const cols=rows[i];if(!cols||cols.length<3)continue;const name=String(cols[0]||'').trim(),code=String(cols[1]||'').trim(),addr=String(cols[2]||'').trim();if(!name)continue;if(DB.addUnit({unit_name:name,credit_code:code,address:addr})){cnt++;fetch('/api/units',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({unit_name:name,credit_code:code,address:addr})}).catch(()=>{});}else{skip++;}}updateStats();renderUnits();showToast('导入 '+cnt+' 条'+(skip>0?'（'+skip+' 条重复已跳过）':''));}catch(err){showToast('xlsx 解析失败: '+err.message);}};reader.readAsArrayBuffer(file);}
+function downloadUnitTemplate(){const headers=[['单位名称','统一社会信用代码','地址']];const ws=XLSX.utils.aoa_to_sheet(headers);ws['!cols']=[{wch:24},{wch:24},{wch:30}];const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'单位导入模板');XLSX.writeFile(wb,'单位导入模板.xlsx');}
+function downloadWifiTemplate(){const headers=[['ID','SSID','BSSID','信号(dBm)','信道','加密方式','频段','厂商','采集时间','关联单位','纬度','经度']];const ws=XLSX.utils.aoa_to_sheet(headers);ws['!cols']=[{wch:6},{wch:24},{wch:20},{wch:10},{wch:6},{wch:12},{wch:6},{wch:12},{wch:20},{wch:16},{wch:12},{wch:12}];const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'WiFi导入模板');XLSX.writeFile(wb,'WiFi导入模板.xlsx');}
 function triggerWifiImport(){if(!hasPerm('records_export')){showToast('导入功能已被管理员限制');return;}document.getElementById('wifiFileInput').click();}
 function importWifiXlsx(e){const file=e.target.files[0];e.target.value='';if(!file)return;const reader=new FileReader();reader.onload=function(ev){try{const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});const ws=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(ws,{header:1});if(rows.length<2){showToast('xlsx 文件格式不正确或无数据');return;}const headers=['ID','SSID','BSSID','信号(dBm)','信道','加密方式','频段','厂商','采集时间','关联单位','纬度','经度'];let cnt=0,skip=0,bound=0,noUnit=0;const syncRecords=[];for(let i=1;i<rows.length;i++){const cols=rows[i];if(!cols||cols.length<3)continue;const bssid=String(cols[2]||'').trim().toUpperCase();if(!bssid||bssid.length<6)continue;if(DB.wifiRecords.find(x=>x.bssid===bssid)){skip++;continue;}const ssid=String(cols[1]||'').trim();const signal=parseInt(cols[3])||0;const channel=parseInt(cols[4])||0;const encrypt_type=String(cols[5]||'').trim()||'未知';const band=String(cols[6]||'').trim()||'2.4G';const vendor=String(cols[7]||'').trim()||'未知';const collect_time=String(cols[8]||'').trim()||new Date().toLocaleString('zh-CN');const unit_name_raw=String(cols[9]||'').trim();const latitude=cols[10]?parseFloat(cols[10]):null;const longitude=cols[11]?parseFloat(cols[11]):null;let unit_id=null,unit_name='';if(unit_name_raw){const u=DB.units.find(x=>x.unit_name===unit_name_raw);if(u){unit_id=u.id;unit_name=u.unit_name;bound++;}else{noUnit++;}}const record={ssid,bssid,signal,channel,encrypt_type,band,vendor,collect_time,unit_id,unit_name,latitude,longitude,exported:false};DB.addWifi(record);cnt++;syncRecords.push({ssid,bssid,signal,channel,encrypt_type,band,vendor,collect_time,unit_name,latitude,longitude});}DB.saveWifi();updateStats();renderRecords();if(syncRecords.length>0){try{fetch('/api/wifi/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({records:syncRecords})}).catch(()=>{});}catch(e){}}let msg='导入 '+cnt+' 条记录';if(skip>0)msg+='，跳过 '+skip+' 条重复';if(bound>0)msg+='，自动绑定 '+bound+' 条';if(noUnit>0)msg+='，'+noUnit+' 条单位未匹配';showToast(msg);}catch(err){showToast('xlsx 解析失败: '+err.message);}};reader.readAsArrayBuffer(file);}
 function escapeHtml(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
@@ -1059,16 +1061,13 @@ async function doLogin(){
   DB.syncFromServer().then(()=>{updateStats();renderRecords();renderUnits();renderScanList();}).catch(()=>{});
   DB.startAutoSync();
 }
-function skipLogin(){DB.stopAutoSync();DB.currentUser=null;DB.saveUser();DB.moduleVisibility={scan:true,records:true,units:true};DB.saveModules();applyModuleVisibility();showToast('已进入游客模式');switchPage('scan');updateUserBadge();}
 async function doLogout(){
   DB.stopAutoSync();
-  // 优先通过本地 Flask API 登出
   try{await fetch('/api/logout',{method:'POST'});}catch(e){}
-  // 降级：NativeBridge
   if(typeof NativeBridge!=='undefined'&&typeof NativeBridge.logout==='function'){try{NativeBridge.logout();}catch(e){}}
-  DB.currentUser=null;DB.saveUser();DB.moduleVisibility={scan:true,records:true,units:true};DB.saveModules();applyModuleVisibility();showToast('已退出登录');updateUserBadge();renderMine();switchPage('mine');
+  DB.currentUser=null;DB.saveUser();DB.moduleVisibility={scan:true,records:true,units:true};DB.saveModules();applyModuleVisibility();showToast('已退出登录');updateUserBadge();renderMine();switchPage('records');
 }
-function updateUserBadge(){const badge=document.getElementById('userBadge'),avatar=document.getElementById('userAvatar'),label=document.getElementById('userLabel');if(DB.currentUser){badge.className='user-badge'+(DB.currentUser.role==='admin'?' admin':'');avatar.textContent=(DB.currentUser.displayName||'U')[0];label.textContent=DB.currentUser.displayName;}else{badge.className='user-badge';avatar.textContent='客';label.textContent='游客';}}
+function updateUserBadge(){const badge=document.getElementById('userBadge'),avatar=document.getElementById('userAvatar'),label=document.getElementById('userLabel');if(DB.currentUser){badge.className='user-badge'+(DB.currentUser.role==='admin'?' admin':'');avatar.textContent=(DB.currentUser.displayName||'U')[0];label.textContent=DB.currentUser.displayName;}else{badge.className='user-badge';avatar.textContent='?';label.textContent='未登录';}}
 
 // ══════════════════════ USER MANAGEMENT ACTIONS ══════════════════════
 function showAddUser(){document.getElementById('addUserTitle').textContent='添加用户';['newUserDisplay','newUserName','newUserPass'].forEach(id=>document.getElementById(id).value='');openModal('addUserModal');}
@@ -1183,6 +1182,14 @@ let toastTimer;
 function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),2400);}
 
 // ══════════════════════ INIT ══════════════════════
+// 判断是否App环境（有WifiBridge或NativeBridge）
+const isApp = !!(window.WifiBridge || (typeof NativeBridge !== 'undefined'));
+// 网页端隐藏扫描模块
+if (!isApp) {
+  document.querySelectorAll('.app-only').forEach(el => el.style.display = 'none');
+  // 默认页面改为记录
+  if (currentPage === 'scan') switchPage('records');
+}
 applyModuleVisibility();updateUserBadge();
 
 // ══════════════════════ ANDROID/MOBILE HEIGHT FIX ══════════════════════
