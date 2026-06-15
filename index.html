@@ -508,6 +508,28 @@ const DB = {
     } catch (e) { console.warn('syncToServer failed:', e); }
   },
 
+  // 启动定时同步（登录后调用）
+  startAutoSync() {
+    if (_syncTimer) return; // 已在运行
+    _syncTimer = setInterval(async () => {
+      if (!this.currentUser) { this.stopAutoSync(); return; }
+      try {
+        const prevWifiLen = this.wifiRecords.length;
+        const prevUnitLen = this.units.length;
+        await this.syncFromServer();
+        if (this.wifiRecords.length !== prevWifiLen || this.units.length !== prevUnitLen) {
+          updateStats(); renderRecords(); renderUnits(); renderScanList();
+          console.log('autoSync: data updated, UI refreshed');
+        }
+      } catch (e) { console.warn('autoSync error:', e); }
+    }, _syncInterval);
+    console.log('autoSync: started (every ' + (_syncInterval/1000) + 's)');
+  },
+  // 停止定时同步（退出登录时调用）
+  stopAutoSync() {
+    if (_syncTimer) { clearInterval(_syncTimer); _syncTimer = null; console.log('autoSync: stopped'); }
+  },
+
   addWifi(r) {
     if (this.wifiRecords.find(x => x.bssid === r.bssid)) return false;
     r.id = this._nextWifiId++; r.collect_time = new Date().toLocaleString('zh-CN'); r.unit_id = null; r.unit_name = ''; r.exported = false;
@@ -577,6 +599,7 @@ function applyModuleVisibility() {
 // ══════════════════════ SCAN ══════════════════════
 let scanFilter = 'all', scanResults = [], scanning = false, currentWifi = null, selectedBssids = new Set(), scanResultMap = {};
 let _autoRefreshTimer = null, _autoRefreshInterval = 15000; // 15秒自动刷新
+let _syncTimer = null, _syncInterval = 30000; // 30秒自动同步服务器数据
 
 function setScanFilter(f, el) { scanFilter = f; document.querySelectorAll('#filterRow .filter-chip').forEach(c => c.classList.remove('active')); el.classList.add('active'); renderScanList(); }
 
@@ -978,6 +1001,7 @@ async function doLogin(){
       applyModuleVisibility();renderMine();switchPage('mine');
       // 登录成功后从服务器同步数据
       DB.syncFromServer().then(()=>{updateStats();renderRecords();renderUnits();renderScanList();});
+      DB.startAutoSync();
       return;
     }else{showToast(res.error||'服务器登录失败');return;}
   }catch(e1){console.warn('Flask API 登录失败，尝试 NativeBridge:',e1);}
@@ -991,6 +1015,7 @@ async function doLogin(){
         if(res.result?.password_changed_at){const last=new Date(res.result.password_changed_at),now=new Date(),diff=now-last,days=diff/(24*3600*1000);if(days>90){document.getElementById('pwdExpireMsg').textContent='您的密码已超过3个月未更改（距今约 '+Math.floor(days)+' 天），建议及时修改以保证账户安全。';openModal('pwdExpireModal');}}
         applyModuleVisibility();renderMine();switchPage('mine');
         DB.syncFromServer().then(()=>{updateStats();renderRecords();renderUnits();renderScanList();});
+        DB.startAutoSync();
         return;
       }else{showToast(res.error||'服务器登录失败');return;}
     }catch(e){console.warn('服务器登录异常，尝试本地登录:',e);}
@@ -1002,9 +1027,11 @@ async function doLogin(){
   applyModuleVisibility();renderMine();switchPage('mine');
   // 即使本地验证成功也尝试同步服务器数据
   DB.syncFromServer().then(()=>{updateStats();renderRecords();renderUnits();renderScanList();}).catch(()=>{});
+  DB.startAutoSync();
 }
-function skipLogin(){DB.currentUser=null;DB.saveUser();DB.moduleVisibility={scan:true,records:true,units:true};DB.saveModules();applyModuleVisibility();showToast('已进入游客模式');switchPage('scan');updateUserBadge();}
+function skipLogin(){DB.stopAutoSync();DB.currentUser=null;DB.saveUser();DB.moduleVisibility={scan:true,records:true,units:true};DB.saveModules();applyModuleVisibility();showToast('已进入游客模式');switchPage('scan');updateUserBadge();}
 async function doLogout(){
+  DB.stopAutoSync();
   // 优先通过本地 Flask API 登出
   try{await fetch('/api/logout',{method:'POST'});}catch(e){}
   // 降级：NativeBridge
