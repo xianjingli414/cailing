@@ -418,6 +418,96 @@ const DB = {
   saveUser() { localStorage.setItem('currentUser', JSON.stringify(this.currentUser)); },
   saveModules() { localStorage.setItem('moduleVisibility', JSON.stringify(this.moduleVisibility)); },
 
+  // ══════════════ 双向同步核心方法 ══════════════
+  // 从服务器拉取最新数据合并到本地（以bssid/unit_name为唯一键去重）
+  async syncFromServer() {
+    try {
+      // 拉取WiFi记录
+      const wifiResp = await fetch('/api/wifi?page_size=9999');
+      const wifiData = await wifiResp.json();
+      if (wifiData.records && wifiData.records.length > 0) {
+        let newCnt = 0, updateCnt = 0;
+        for (const r of wifiData.records) {
+          const existing = this.wifiRecords.find(x => x.bssid === r.bssid);
+          if (!existing) {
+            this.wifiRecords.unshift({
+              ssid: r.ssid || '', bssid: r.bssid, signal: r.signal || 0,
+              channel: r.channel || 0, encrypt_type: r.encrypt_type || '未知',
+              band: r.band || '2.4G', vendor: r.vendor || '未知',
+              collect_time: r.collect_time || new Date().toLocaleString('zh-CN'),
+              unit_id: r.unit_id || null, unit_name: r.unit_name || '',
+              exported: false, id: this._nextWifiId++
+            });
+            newCnt++;
+          } else {
+            // 已存在：如果服务器有绑定信息而本地没有，则更新
+            if (r.unit_id && !existing.unit_id) {
+              existing.unit_id = r.unit_id;
+              existing.unit_name = r.unit_name || '';
+              updateCnt++;
+            }
+          }
+        }
+        if (newCnt > 0 || updateCnt > 0) {
+          this.saveWifi();
+          console.log('syncFromServer: +' + newCnt + ' new, ~' + updateCnt + ' updated');
+        }
+      }
+      // 拉取单位数据
+      const unitResp = await fetch('/api/units/all');
+      const unitData = await unitResp.json();
+      if (unitData.units && unitData.units.length > 0) {
+        let newUnits = 0;
+        for (const u of unitData.units) {
+          if (!this.units.find(x => x.unit_name === u.unit_name)) {
+            this.units.unshift({
+              id: this._nextUnitId++, unit_name: u.unit_name,
+              credit_code: u.credit_code || '', address: u.address || '',
+              create_time: u.create_time || new Date().toLocaleString('zh-CN')
+            });
+            newUnits++;
+          }
+        }
+        if (newUnits > 0) {
+          this.saveUnits();
+          console.log('syncFromServer: +' + newUnits + ' new units');
+        }
+      }
+      // 将本地独有的数据推送到服务器
+      await this.syncToServer();
+    } catch (e) { console.warn('syncFromServer failed:', e); }
+  },
+
+  // 将本地独有数据推送到服务器
+  async syncToServer() {
+    try {
+      // 推送本地WiFi记录（服务器没有的）
+      const wifiResp = await fetch('/api/wifi?page_size=9999');
+      const wifiData = await wifiResp.json();
+      const serverBssids = new Set((wifiData.records || []).map(r => r.bssid));
+      const localOnly = this.wifiRecords.filter(r => !serverBssids.has(r.bssid));
+      if (localOnly.length > 0) {
+        await fetch('/api/wifi/sync', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({records: localOnly})
+        });
+        console.log('syncToServer: pushed ' + localOnly.length + ' wifi records');
+      }
+      // 推送本地单位（服务器没有的）
+      const unitResp = await fetch('/api/units/all');
+      const unitData = await unitResp.json();
+      const serverUnitNames = new Set((unitData.units || []).map(u => u.unit_name));
+      const localOnlyUnits = this.units.filter(u => !serverUnitNames.has(u.unit_name));
+      for (const u of localOnlyUnits) {
+        await fetch('/api/units', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({unit_name: u.unit_name, credit_code: u.credit_code, address: u.address})
+        });
+      }
+      if (localOnlyUnits.length > 0) console.log('syncToServer: pushed ' + localOnlyUnits.length + ' units');
+    } catch (e) { console.warn('syncToServer failed:', e); }
+  },
+
   addWifi(r) {
     if (this.wifiRecords.find(x => x.bssid === r.bssid)) return false;
     r.id = this._nextWifiId++; r.collect_time = new Date().toLocaleString('zh-CN'); r.unit_id = null; r.unit_name = ''; r.exported = false;
@@ -717,7 +807,7 @@ function openScanDetail(bssid) {
   openModal('wifiDetailModal');
 }
 function dRow(l,v) { return '<div class="detail-row"><div class="detail-label">'+l+'</div><div class="detail-value">'+v+'</div></div>'; }
-function saveCurrentWifi() { if (!currentWifi) return; DB.addWifi({...currentWifi}) ? (showToast('已保存到记录库'),updateStats(),renderScanList()) : showToast('该 WiFi 已在记录库中'); closeModal('wifiDetailModal'); }
+function saveCurrentWifi() { if (!currentWifi) return; if(DB.addWifi({...currentWifi})){showToast('已保存到记录库');updateStats();renderScanList();fetch('/api/wifi/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({records:[currentWifi]})}).catch(()=>{});}else{showToast('该 WiFi 已在记录库中');} closeModal('wifiDetailModal'); }
 
 // ══════════════════════ BATCH BAR ══════════════════════
 function updateBatchBar() {
@@ -727,7 +817,7 @@ function updateBatchBar() {
     document.getElementById('batchBindBtn').style.display = hasPerm('scan_bind') ? '' : 'none';
   } else { bar.classList.remove('visible'); }
 }
-function batchSave(){if(currentPage!=='scan'||selectedBssids.size===0)return;let saved=0,skip=0;[...selectedBssids].forEach(bssid=>{const r=scanResultMap[bssid];if(r)DB.addWifi({...r})?saved++:skip++;});updateStats();renderScanList();showToast('已保存 '+saved+' 条'+(skip>0?'（'+skip+' 条已存在）':''));}
+function batchSave(){if(currentPage!=='scan'||selectedBssids.size===0)return;let saved=0,skip=0;const syncRecs=[];[...selectedBssids].forEach(bssid=>{const r=scanResultMap[bssid];if(r){if(DB.addWifi({...r})){saved++;syncRecs.push(r);}else{skip++;}}});updateStats();renderScanList();showToast('已保存 '+saved+' 条'+(skip>0?'（'+skip+' 条已存在）':''));if(syncRecs.length>0)fetch('/api/wifi/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({records:syncRecs})}).catch(()=>{});}
 function batchBind(){if(currentPage!=='scan'||selectedBssids.size===0||!hasPerm('scan_bind'))return;[...selectedBssids].forEach(bssid=>{const r=scanResultMap[bssid];if(r&&!DB.wifiRecords.find(x=>x.bssid===bssid))DB.addWifi({...r});});updateStats();document.getElementById('bindTitle').textContent='绑定单位';document.getElementById('bindSubtitle').textContent='将 '+selectedBssids.size+' 条 WiFi 统一绑定到：';document.getElementById('bindUnitSearch').value='';renderBindUnitList();openModal('bindUnitModal');}
 function doBind(unitId) {
   const bssids=[...selectedBssids];
@@ -756,6 +846,8 @@ function _executeBind(bssids, unitId, u) {
   const cnt=DB.bulkBindByBssid(bssids,unitId);
   closeModal('bindUnitModal');
   selectedBssids.clear(); renderScanList(); showToast('已将 '+cnt+' 条 WiFi 绑定到「'+(u?u.unit_name:'')+'」');
+  // 同步绑定到服务器
+  fetch('/api/wifi/bulk-bind',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({bssids:bssids,unit_id:unitId})}).catch(()=>{});
 }
 let _pendingBindUnitId = null, _pendingBindBssids = [];
 function confirmRebind() {
@@ -883,7 +975,10 @@ async function doLogin(){
       DB.currentUser={username:user,displayName:res.result?.displayName||user,role:res.result?.role||'user'};DB.saveUser();
       showToast(DB.currentUser.displayName+' 登录成功（已连接服务器）');
       if(res.result?.password_changed_at){const last=new Date(res.result.password_changed_at),now=new Date(),diff=now-last,days=diff/(24*3600*1000);if(days>90){document.getElementById('pwdExpireMsg').textContent='您的密码已超过3个月未更改（距今约 '+Math.floor(days)+' 天），建议及时修改以保证账户安全。';openModal('pwdExpireModal');}}
-      applyModuleVisibility();renderMine();switchPage('mine');return;
+      applyModuleVisibility();renderMine();switchPage('mine');
+      // 登录成功后从服务器同步数据
+      DB.syncFromServer().then(()=>{updateStats();renderRecords();renderUnits();renderScanList();});
+      return;
     }else{showToast(res.error||'服务器登录失败');return;}
   }catch(e1){console.warn('Flask API 登录失败，尝试 NativeBridge:',e1);}
   // 降级：NativeBridge（兼容旧版 APK）
@@ -894,7 +989,9 @@ async function doLogin(){
         DB.currentUser={username:user,displayName:res.result?.displayName||user,role:res.result?.role||'user'};DB.saveUser();
         showToast(DB.currentUser.displayName+' 登录成功（已连接服务器）');
         if(res.result?.password_changed_at){const last=new Date(res.result.password_changed_at),now=new Date(),diff=now-last,days=diff/(24*3600*1000);if(days>90){document.getElementById('pwdExpireMsg').textContent='您的密码已超过3个月未更改（距今约 '+Math.floor(days)+' 天），建议及时修改以保证账户安全。';openModal('pwdExpireModal');}}
-        applyModuleVisibility();renderMine();switchPage('mine');return;
+        applyModuleVisibility();renderMine();switchPage('mine');
+        DB.syncFromServer().then(()=>{updateStats();renderRecords();renderUnits();renderScanList();});
+        return;
       }else{showToast(res.error||'服务器登录失败');return;}
     }catch(e){console.warn('服务器登录异常，尝试本地登录:',e);}
   }
@@ -903,6 +1000,8 @@ async function doLogin(){
   if(found){DB.currentUser={username:found.username,displayName:found.displayName,role:found.role};DB.saveUser();showToast(found.displayName+' 登录成功（离线模式）');
     if(found.password_changed_at){const last=new Date(found.password_changed_at),now=new Date(),diff=now-last,days=diff/(24*3600*1000);if(days>90){document.getElementById('pwdExpireMsg').textContent='您的密码已超过3个月未更改（距今约 '+Math.floor(days)+' 天），建议及时修改以保证账户安全。';openModal('pwdExpireModal');}}}else{showToast('账号或密码错误');return;}
   applyModuleVisibility();renderMine();switchPage('mine');
+  // 即使本地验证成功也尝试同步服务器数据
+  DB.syncFromServer().then(()=>{updateStats();renderRecords();renderUnits();renderScanList();}).catch(()=>{});
 }
 function skipLogin(){DB.currentUser=null;DB.saveUser();DB.moduleVisibility={scan:true,records:true,units:true};DB.saveModules();applyModuleVisibility();showToast('已进入游客模式');switchPage('scan');updateUserBadge();}
 async function doLogout(){
