@@ -6,10 +6,9 @@ package.domain = com.cailing
 source.dir = .
 source.include_exts = py,png,jpg,kv,atlas,html,db,json,java,ico
 
-version = 14.0
+version = 15.0
 
-# ── 关键：使用 webview bootstrap，彻底告别 SDL2/GL ──
-# 不再需要 kivy！Flask 替代 Kivy 做 UI 后端
+# ── 关键：使用 webview bootstrap
 requirements = python3,flask,pyjnius
 
 # webview bootstrap
@@ -41,8 +40,8 @@ android.sdk = 33
 android.arch = arm64-v8a
 
 android.allow_backup = True
-android.stringversion = 14.0
-android.version_code = 14
+android.stringversion = 15.0
+android.version_code = 15
 
 # 日志级别
 android.logcat_filters = *:S python:D

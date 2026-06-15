@@ -627,7 +627,7 @@ def api_config_set():
 # ══════════════════════════════════════════════════════════
 
 def main():
-    print('[Cailing] === v14.0 Flask Server ===')
+    print('[Cailing] === v15.0 Flask Server ===')
     print(f'[Cailing] IS_ANDROID={IS_ANDROID}')
     print('[Cailing] WiFi扫描已改用Java原生WifiBridge，JS直接调用window.WifiBridge.scanWifi()')
 

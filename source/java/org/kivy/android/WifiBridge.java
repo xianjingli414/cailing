@@ -1,20 +1,28 @@
 package org.kivy.android;
 
 import android.app.Activity;
+import android.content.ContentValues;
 import android.content.Context;
+import android.net.Uri;
 import android.net.wifi.ScanResult;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.Manifest;
 import android.content.pm.PackageManager;
 import android.os.Build;
+import android.os.Environment;
+import android.provider.MediaStore;
 import android.util.Log;
 import android.webkit.JavascriptInterface;
+import android.widget.Toast;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.json.JSONException;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.OutputStream;
 import java.util.List;
 
 /**
@@ -234,6 +242,84 @@ public class WifiBridge {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    /**
+     * Save a file to Downloads directory (called from JS for XLSX export/template download)
+     * @param filename  The file name to save (e.g. "wifi_export.xlsx")
+     * @param base64Data  Base64-encoded file content (without data:... prefix)
+     * @return true if saved successfully, false otherwise
+     */
+    @JavascriptInterface
+    public boolean saveFile(final String filename, final String base64Data) {
+        if (filename == null || base64Data == null) {
+            Log.e(TAG, "saveFile: filename or base64Data is null");
+            return false;
+        }
+        try {
+            final byte[] bytes = android.util.Base64.decode(base64Data, android.util.Base64.NO_WRAP);
+            if (bytes == null || bytes.length == 0) {
+                Log.e(TAG, "saveFile: Base64 decode failed or empty result");
+                return false;
+            }
+
+            mActivity.runOnUiThread(() -> {
+                try {
+                    if (Build.VERSION.SDK_INT >= 29) {
+                        // Android 10+: Use MediaStore
+                        ContentValues values = new ContentValues();
+                        values.put(MediaStore.Downloads.DISPLAY_NAME, filename);
+                        values.put(MediaStore.Downloads.MIME_TYPE, getMimeType(filename));
+                        values.put(MediaStore.Downloads.IS_PENDING, 1);
+                        Uri uri = mActivity.getContentResolver().insert(
+                                MediaStore.Downloads.getContentUri("external_primary"), values);
+                        if (uri != null) {
+                            OutputStream os = mActivity.getContentResolver().openOutputStream(uri);
+                            if (os != null) {
+                                os.write(bytes);
+                                os.flush();
+                                os.close();
+                            }
+                            values.clear();
+                            values.put(MediaStore.Downloads.IS_PENDING, 0);
+                            mActivity.getContentResolver().update(uri, values, null, null);
+                            Toast.makeText(mActivity, "已保存到下载目录: " + filename, Toast.LENGTH_LONG).show();
+                            Log.i(TAG, "saveFile: saved to Downloads/" + filename + " (" + bytes.length + " bytes)");
+                        } else {
+                            Toast.makeText(mActivity, "保存失败: 无法创建文件", Toast.LENGTH_LONG).show();
+                            Log.e(TAG, "saveFile: MediaStore insert returned null");
+                        }
+                    } else {
+                        // Android 9-: Use external storage
+                        File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                        if (!dir.exists()) dir.mkdirs();
+                        File file = new File(dir, filename);
+                        FileOutputStream fos = new FileOutputStream(file);
+                        fos.write(bytes);
+                        fos.flush();
+                        fos.close();
+                        Toast.makeText(mActivity, "已保存到: " + file.getAbsolutePath(), Toast.LENGTH_LONG).show();
+                        Log.i(TAG, "saveFile: saved to " + file.getAbsolutePath() + " (" + bytes.length + " bytes)");
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "saveFile error: " + e.getMessage());
+                    Toast.makeText(mActivity, "保存失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                }
+            });
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "saveFile outer error: " + e.getMessage());
+            return false;
+        }
+    }
+
+    private static String getMimeType(String filename) {
+        if (filename == null) return "application/octet-stream";
+        if (filename.endsWith(".xlsx")) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+        if (filename.endsWith(".xls")) return "application/vnd.ms-excel";
+        if (filename.endsWith(".csv")) return "text/csv";
+        if (filename.endsWith(".pdf")) return "application/pdf";
+        return "application/octet-stream";
     }
 
     // Helper methods

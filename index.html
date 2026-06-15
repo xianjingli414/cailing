@@ -174,7 +174,7 @@
 
 <div class="status-bar">
   <span class="time" id="clock">15:30</span>
-  <span style="font-size:11px;color:var(--text3)">v14.0</span>
+  <span style="font-size:11px;color:var(--text3)">v15.0</span>
   <button class="user-badge" id="userBadge" onclick="switchPage('mine')">
     <div class="user-avatar" id="userAvatar">客</div>
     <span id="userLabel">游客</span>
@@ -938,7 +938,7 @@ function renderRecords() {
 function toggleRecordItem(id,el){if(selectedRecordIds.has(id)){selectedRecordIds.delete(id);el.classList.remove('checked');}else{selectedRecordIds.add(id);el.classList.add('checked');}renderRecords();}
 function toggleRecordSelectAll(){const q=document.getElementById('recordSearch').value.toLowerCase();let rows=DB.wifiRecords.filter(r=>{if(!r.unit_name)return false;if(q&&!r.ssid.toLowerCase().includes(q)&&!r.bssid.toLowerCase().includes(q)&&!(r.unit_name&&r.unit_name.toLowerCase().includes(q))) return false;if(recordFilter==='2.4G'&&r.band!=='2.4G') return false;if(recordFilter==='5G'&&r.band!=='5G') return false;return true;});if(selectedRecordIds.size===rows.length) selectedRecordIds.clear();else rows.forEach(r=>selectedRecordIds.add(r.id));renderRecords();}
 function deleteRecord(id){if(!hasPerm('records_delete')){showToast('删除记录功能已被管理员限制');return;}const r=DB.wifiRecords.find(x=>x.id===id);selectedRecordIds.delete(id);DB.deleteWifi(id);updateStats();renderScanList();renderRecords();showToast('已删除');if(r)fetch('/api/wifi/bssid/'+r.bssid,{method:'DELETE'}).catch(()=>{});}
-function exportSelectedRecords(){if(!hasPerm('records_export')){showToast('导出功能已被管理员限制');return;}if(!selectedRecordIds.size){showToast('请先勾选要导出的记录');return;}const rows=DB.wifiRecords.filter(r=>selectedRecordIds.has(r.id));if(!rows.length){showToast('未找到选中记录');return;}const headers=['ID','SSID','BSSID','信号(dBm)','信道','加密方式','频段','厂商','采集时间','关联单位','纬度','经度'];const keys=['id','ssid','bssid','signal','channel','encrypt_type','band','vendor','collect_time','unit_name','latitude','longitude'];const data=[headers,...rows.map(r=>keys.map(k=>String(r[k]||'')))];const ws=XLSX.utils.aoa_to_sheet(data);ws['!cols']=[{wch:6},{wch:24},{wch:20},{wch:10},{wch:6},{wch:12},{wch:6},{wch:12},{wch:20},{wch:16},{wch:12},{wch:12}];const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'WiFi记录');XLSX.writeFile(wb,'wifi_export_'+new Date().toLocaleDateString('zh-CN').replace(/\//g,'-')+'.xlsx');rows.forEach(r=>r.exported=true);DB.saveWifi();showToast('已导出 '+rows.length+' 条记录');renderRecords();}
+function exportSelectedRecords(){if(!hasPerm('records_export')){showToast('导出功能已被管理员限制');return;}if(!selectedRecordIds.size){showToast('请先勾选要导出的记录');return;}const rows=DB.wifiRecords.filter(r=>selectedRecordIds.has(r.id));if(!rows.length){showToast('未找到选中记录');return;}const headers=['ID','SSID','BSSID','信号(dBm)','信道','加密方式','频段','厂商','采集时间','关联单位','纬度','经度'];const keys=['id','ssid','bssid','signal','channel','encrypt_type','band','vendor','collect_time','unit_name','latitude','longitude'];const data=[headers,...rows.map(r=>keys.map(k=>String(r[k]||'')))];const ws=XLSX.utils.aoa_to_sheet(data);ws['!cols']=[{wch:6},{wch:24},{wch:20},{wch:10},{wch:6},{wch:12},{wch:6},{wch:12},{wch:20},{wch:16},{wch:12},{wch:12}];const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'WiFi记录');saveXlsxFile(wb,'wifi_export_'+new Date().toLocaleDateString('zh-CN').replace(/\//g,'-')+'.xlsx');rows.forEach(r=>r.exported=true);DB.saveWifi();showToast('已导出 '+rows.length+' 条记录');renderRecords();}
 
 // ══════════════════════ UNITS ══════════════════════
 let editingUnitId=null;
@@ -957,8 +957,8 @@ function submitUnit(){const name=document.getElementById('unitName').value.trim(
 function deleteUnit(id){if(!hasPerm('units_delete')){showToast('删除单位功能已被管理员限制');return;}const u=DB.units.find(x=>x.id===id);DB.deleteUnit(id);updateStats();renderUnits();showToast('已删除');if(u)fetch('/api/units/name/'+encodeURIComponent(u.unit_name),{method:'DELETE'}).catch(()=>{});}
 function triggerUnitImport(){if(!hasPerm('units_import')){showToast('导入功能已被管理员限制');return;}document.getElementById('unitFileInput').click();}
 function importUnitsXlsx(e){const file=e.target.files[0];e.target.value='';if(!file)return;const reader=new FileReader();reader.onload=function(ev){try{const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});const ws=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(ws,{header:1});if(rows.length<2){showToast('xlsx 文件格式不正确或无数据');return;}let cnt=0,skip=0;for(let i=1;i<rows.length;i++){const cols=rows[i];if(!cols||cols.length<3)continue;const name=String(cols[0]||'').trim(),code=String(cols[1]||'').trim(),addr=String(cols[2]||'').trim();if(!name)continue;if(DB.addUnit({unit_name:name,credit_code:code,address:addr})){cnt++;fetch('/api/units',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({unit_name:name,credit_code:code,address:addr})}).catch(()=>{});}else{skip++;}}updateStats();renderUnits();showToast('导入 '+cnt+' 条'+(skip>0?'（'+skip+' 条重复已跳过）':''));}catch(err){showToast('xlsx 解析失败: '+err.message);}};reader.readAsArrayBuffer(file);}
-function downloadUnitTemplate(){const headers=[['单位名称','统一社会信用代码','地址']];const ws=XLSX.utils.aoa_to_sheet(headers);ws['!cols']=[{wch:24},{wch:24},{wch:30}];const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'单位导入模板');XLSX.writeFile(wb,'单位导入模板.xlsx');}
-function downloadWifiTemplate(){const headers=[['ID','SSID','BSSID','信号(dBm)','信道','加密方式','频段','厂商','采集时间','关联单位','纬度','经度']];const ws=XLSX.utils.aoa_to_sheet(headers);ws['!cols']=[{wch:6},{wch:24},{wch:20},{wch:10},{wch:6},{wch:12},{wch:6},{wch:12},{wch:20},{wch:16},{wch:12},{wch:12}];const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'WiFi导入模板');XLSX.writeFile(wb,'WiFi导入模板.xlsx');}
+function downloadUnitTemplate(){const headers=[['单位名称','统一社会信用代码','地址']];const ws=XLSX.utils.aoa_to_sheet(headers);ws['!cols']=[{wch:24},{wch:24},{wch:30}];const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'单位导入模板');saveXlsxFile(wb,'单位导入模板.xlsx');}
+function downloadWifiTemplate(){const headers=[['ID','SSID','BSSID','信号(dBm)','信道','加密方式','频段','厂商','采集时间','关联单位','纬度','经度']];const ws=XLSX.utils.aoa_to_sheet(headers);ws['!cols']=[{wch:6},{wch:24},{wch:20},{wch:10},{wch:6},{wch:12},{wch:6},{wch:12},{wch:20},{wch:16},{wch:12},{wch:12}];const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'WiFi导入模板');saveXlsxFile(wb,'WiFi导入模板.xlsx');}
 function triggerWifiImport(){if(!hasPerm('records_export')){showToast('导入功能已被管理员限制');return;}document.getElementById('wifiFileInput').click();}
 function importWifiXlsx(e){const file=e.target.files[0];e.target.value='';if(!file)return;const reader=new FileReader();reader.onload=function(ev){try{const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});const ws=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(ws,{header:1});if(rows.length<2){showToast('xlsx 文件格式不正确或无数据');return;}const headers=['ID','SSID','BSSID','信号(dBm)','信道','加密方式','频段','厂商','采集时间','关联单位','纬度','经度'];let cnt=0,skip=0,bound=0,noUnit=0;const syncRecords=[];for(let i=1;i<rows.length;i++){const cols=rows[i];if(!cols||cols.length<3)continue;const bssid=String(cols[2]||'').trim().toUpperCase();if(!bssid||bssid.length<6)continue;if(DB.wifiRecords.find(x=>x.bssid===bssid)){skip++;continue;}const ssid=String(cols[1]||'').trim();const signal=parseInt(cols[3])||0;const channel=parseInt(cols[4])||0;const encrypt_type=String(cols[5]||'').trim()||'未知';const band=String(cols[6]||'').trim()||'2.4G';const vendor=String(cols[7]||'').trim()||'未知';const collect_time=String(cols[8]||'').trim()||new Date().toLocaleString('zh-CN');const unit_name_raw=String(cols[9]||'').trim();const latitude=cols[10]?parseFloat(cols[10]):null;const longitude=cols[11]?parseFloat(cols[11]):null;let unit_id=null,unit_name='';if(unit_name_raw){const u=DB.units.find(x=>x.unit_name===unit_name_raw);if(u){unit_id=u.id;unit_name=u.unit_name;bound++;}else{noUnit++;}}const record={ssid,bssid,signal,channel,encrypt_type,band,vendor,collect_time,unit_id,unit_name,latitude,longitude,exported:false};DB.addWifi(record);cnt++;syncRecords.push({ssid,bssid,signal,channel,encrypt_type,band,vendor,collect_time,unit_name,latitude,longitude});}DB.saveWifi();updateStats();renderRecords();if(syncRecords.length>0){try{fetch('/api/wifi/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({records:syncRecords})}).catch(()=>{});}catch(e){}}let msg='导入 '+cnt+' 条记录';if(skip>0)msg+='，跳过 '+skip+' 条重复';if(bound>0)msg+='，自动绑定 '+bound+' 条';if(noUnit>0)msg+='，'+noUnit+' 条单位未匹配';showToast(msg);}catch(err){showToast('xlsx 解析失败: '+err.message);}};reader.readAsArrayBuffer(file);}
 function escapeHtml(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
@@ -1185,6 +1185,25 @@ function showToast(msg){const t=document.getElementById('toast');t.textContent=m
 // ══════════════════════ INIT ══════════════════════
 // 判断是否App环境（有WifiBridge或NativeBridge）
 const isApp = !!(window.WifiBridge || (typeof NativeBridge !== 'undefined'));
+
+// 通用XLSX保存函数：App环境通过WifiBridge.saveFile保存到手机Downloads，浏览器环境用XLSX.writeFile
+function saveXlsxFile(wb, filename) {
+  if (isApp && window.WifiBridge && typeof window.WifiBridge.saveFile === 'function') {
+    try {
+      // 生成Base64数据，通过WifiBridge保存到手机
+      const wbout = XLSX.write(wb, {bookType: 'xlsx', type: 'base64'});
+      const ok = window.WifiBridge.saveFile(filename, wbout);
+      if (ok) {
+        showToast('已保存到下载目录: ' + filename);
+        return;
+      }
+    } catch(e) {
+      console.warn('WifiBridge.saveFile失败，回退到XLSX.writeFile:', e);
+    }
+  }
+  // 浏览器环境或WifiBridge不可用时的回退方案
+  XLSX.writeFile(wb, filename);
+}
 // 网页端隐藏扫描模块
 if (!isApp) {
   document.querySelectorAll('.app-only').forEach(el => el.style.display = 'none');
