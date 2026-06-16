@@ -977,8 +977,7 @@ function renderUnits(){document.getElementById('unitsSubtitle').textContent='共
 function showAddUnit(){if(!hasPerm('units_view')){showToast('添加单位功能已被管理员限制');return;}editingUnitId=null;document.getElementById('unitModalTitle').textContent='添加单位';['unitName','unitCode','unitAddr'].forEach(id=>document.getElementById(id).value='');openModal('addUnitModal');}
 function editUnit(id){if(!hasPerm('units_view')){showToast('编辑单位功能已被管理员限制');return;}const u=DB.units.find(x=>x.id===id);if(!u)return;editingUnitId=id;document.getElementById('unitModalTitle').textContent='编辑单位';document.getElementById('unitName').value=u.unit_name;document.getElementById('unitCode').value=u.credit_code;document.getElementById('unitAddr').value=u.address;openModal('addUnitModal');}
 function submitUnit(){const name=document.getElementById('unitName').value.trim(),code=document.getElementById('unitCode').value.trim(),addr=document.getElementById('unitAddr').value.trim();if(!name){showToast('请输入单位名称');return;}if(!code){showToast('请输入信用代码');return;}if(!addr){showToast('请输入地址');return;}if(editingUnitId){const oldUnit=DB.units.find(x=>x.id===editingUnitId);DB.updateUnit(editingUnitId,{unit_name:name,credit_code:code,address:addr});showToast('已更新');if(oldUnit)fetch('/api/units/name/'+encodeURIComponent(oldUnit.unit_name),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({unit_name:name,credit_code:code,address:addr})}).catch(()=>{});}else{if(DB.addUnit({unit_name:name,credit_code:code,address:addr})){showToast('添加成功');fetch('/api/units',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({unit_name:name,credit_code:code,address:addr})}).catch(()=>{});}else{showToast('该单位名称已存在');}}closeModal('addUnitModal');updateStats();renderUnits();}
-function deleteUnit(id){if(!hasPerm('units_delete')){showToast('删除单位功能已被管理员限制');return;}if(!confirm('确定删除该单位？该单位下已绑定的WiFi记录将解除关联。'))return;const u=DB.units.find(x=>x.id===id);DB.deleteUnit(id);updateStats();renderUnits();showToast('已删除');if(u){fetch('/api/units/name/'+encodeURIComponent(u.unit_name),{method:'DELETE'}).catch(()=>{});// 同步解绑该单位下的WiFi记录
-const affected=DB.wifiRecords.filter(r=>r.unit_name===u.unit_name);if(affected.length>0){affected.forEach(r=>{r.unit_id=null;r.unit_name='';});DB.saveWifi();const bssids=affected.map(r=>r.bssid);fetch('/api/wifi/bulk-bind',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({bssids:bssids,unit_name:''})}).catch(()=>{});}}}
+function deleteUnit(id){if(!hasPerm('units_delete')){showToast('删除单位功能已被管理员限制');return;}const boundCount=DB.wifiRecords.filter(r=>r.unit_id===id).length;if(!confirm('确定删除该单位？'+(boundCount>0?'该单位下已绑定的 '+boundCount+' 条WiFi记录将被一并删除，':'')+'此操作不可恢复。'))return;const u=DB.units.find(x=>x.id===id);DB.units=DB.units.filter(x=>x.id!==id);DB.wifiRecords=DB.wifiRecords.filter(r=>r.unit_id!==id);DB.saveUnits();DB.saveWifi();updateStats();renderUnits();renderRecords();showToast('已删除');if(u){fetch('/api/units/name/'+encodeURIComponent(u.unit_name),{method:'DELETE'}).then(r=>r.json()).then(data=>{if(data.deleted_wifi>0)showToast('已同步删除 '+data.deleted_wifi+' 条WiFi记录');}).catch(()=>{});}}
 function triggerUnitImport(){if(!hasPerm('units_import')){showToast('导入功能已被管理员限制');return;}document.getElementById('unitFileInput').click();}
 function importUnitsXlsx(e){const file=e.target.files[0];e.target.value='';if(!file)return;const reader=new FileReader();reader.onload=function(ev){try{const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});const ws=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(ws,{header:1});if(rows.length<2){showToast('xlsx 文件格式不正确或无数据');return;}let cnt=0,skip=0;for(let i=1;i<rows.length;i++){const cols=rows[i];if(!cols||cols.length<3)continue;const name=String(cols[0]||'').trim(),code=String(cols[1]||'').trim(),addr=String(cols[2]||'').trim();if(!name)continue;if(DB.addUnit({unit_name:name,credit_code:code,address:addr})){cnt++;fetch('/api/units',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({unit_name:name,credit_code:code,address:addr})}).catch(()=>{});}else{skip++;}}updateStats();renderUnits();showToast('导入 '+cnt+' 条'+(skip>0?'（'+skip+' 条重复已跳过）':''));}catch(err){showToast('xlsx 解析失败: '+err.message);}};reader.readAsArrayBuffer(file);}
 function downloadUnitTemplate(){const headers=[['单位名称','统一社会信用代码','地址']];const ws=XLSX.utils.aoa_to_sheet(headers);ws['!cols']=[{wch:24},{wch:24},{wch:30}];const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'单位导入模板');saveXlsxFile(wb,'单位导入模板.xlsx');}
@@ -1162,16 +1161,18 @@ async function submitAddUser(){
   closeModal('addUserModal'); renderUserList(); showToast('用户「'+display+'」已创建（仅本地）');
 }
 async function deleteUser(username){
-  if(!confirm('确定删除用户「'+username+'」？该操作不可恢复。'))return;
+  const u=USERS.find(x=>x.username===username);
+  const uRole=u?(u.role||''):'';
+  let confirmMsg='确定删除用户「'+username+'」？该操作不可恢复。';
+  if(uRole==='dept_admin'){confirmMsg='确定删除部门管理员「'+username+'」？若该部门下还有操作员则无法删除。';}
+  if(!confirm(confirmMsg))return;
   // 优先通过 Flask API 从服务器删除
   try{
     const resp=await fetch('/api/users/'+username,{method:'DELETE'});
     const res=await resp.json();
-    if(res.success){showToast('用户已删除（已同步服务器）');}
-    else{showToast(res.error||'服务器删除失败，仅本地删除');}
-  }catch(e){console.warn('Flask API 删除用户失败，仅本地删除:',e);}
-  // 本地也删除
-  USERS=USERS.filter(u=>u.username!==username);delete USER_PERMS[username];saveUsers();savePerms();renderUserList();
+    if(res.success){showToast('用户已删除（已同步服务器）');USERS=USERS.filter(u=>u.username!==username);delete USER_PERMS[username];saveUsers();savePerms();renderUserList();}
+    else{showToast(res.error||'服务器删除失败');}
+  }catch(e){console.warn('Flask API 删除用户失败，仅本地删除:',e);USERS=USERS.filter(u=>u.username!==username);delete USER_PERMS[username];saveUsers();savePerms();renderUserList();}
 }
 
 let _editingPermUser = null;
