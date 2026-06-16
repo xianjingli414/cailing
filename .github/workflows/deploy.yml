@@ -1,0 +1,18 @@
+name: Deploy to Server
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install sshpass
+      run: sudo apt-get install -y sshpass
+
+    - name: Deploy index.html to server
+      run: |
+        sshpass -p '${{ secrets.SERVER_SSH_PASS }}' scp -o StrictHostKeyChecking=no -P 2222 index.html admin@${{ secrets.SERVER_IP }}:/tmp/index.html.new
+        sshpass -p '${{ secrets.SERVER_SSH_PASS }}' ssh -o StrictHostKeyChecking=no -p 2222 admin@${{ secrets.SERVER_IP }} "sudo cp /tmp/index.html.new /home/admin/cailing-server/templates/index.html && sudo systemctl restart cailing"

@@ -551,7 +551,7 @@ if(usersChanged) saveUsers();
 // Granular perms per user: { username: { scan_view, scan_bind, records_view, records_filter, records_export, units_view, units_add, units_edit, units_delete, units_import } }
 let USER_PERMS = JSON.parse(localStorage.getItem('_user_perms') || '{}');
 // Default perms for new regular users
-const GRANULAR_PERMS_DEFAULT = { scan_view:true, scan_bind:true, records_view:true, records_delete:true, records_export:true, records_import:true, units_view:true, units_delete:true, units_import:true, users_manage:true };
+const GRANULAR_PERMS_DEFAULT = { scan_view:true, scan_bind:true, records_view:true, records_delete:true, records_export:true, records_import:true, units_view:true, units_create:true, units_delete:true, units_import:true, users_manage:true };
 
 function saveUsers() { localStorage.setItem('_users', JSON.stringify(USERS)); }
 function savePerms() { localStorage.setItem('_user_perms', JSON.stringify(USER_PERMS)); }
@@ -566,6 +566,7 @@ function getPerms() {
 }
 function hasPerm(key) { if (isAdmin()) return true; return getPerms()[key] !== false; }
 function isAdmin() { return DB.currentUser && DB.currentUser.role === 'admin'; }
+function isDeptAdmin() { return DB.currentUser && DB.currentUser.role === 'dept_admin'; }
 
 // Seed demo data removed - app starts empty
 
@@ -1037,7 +1038,7 @@ function renderUserList(){
 }
 function renderMyPerms(){
   const perms=getPerms(), keys=Object.keys(GRANULAR_PERMS_DEFAULT);
-  const groups={扫描:['scan_view','scan_bind'],记录:['records_view','records_delete','records_export','records_import'],单位管理:['units_view','units_delete','units_import'],用户管理:['users_manage']};
+  const groups={扫描:['scan_view','scan_bind'],记录:['records_view','records_delete','records_export','records_import'],单位管理:['units_view','units_create','units_delete','units_import'],用户管理:['users_manage']};
   let html='';
   for(const [group,gKeys] of Object.entries(groups)){
     html+='<div class="perm-group"><div class="perm-section-label">'+group+'</div>';
@@ -1133,26 +1134,56 @@ async function deleteUser(username){
 }
 
 let _editingPermUser = null;
-function editUserPerms(username){
+async function editUserPerms(username){
   const u=USERS.find(x=>x.username===username);if(!u)return;
   _editingPermUser=username;
   document.getElementById('editPermTitle').textContent='编辑权限';
   document.getElementById('editPermName').textContent=u.displayName+' ('+username+')';
-  renderPermEditForm(USER_PERMS[username]||{...GRANULAR_PERMS_DEFAULT});
+  // 优先从服务器获取权限
+  let perms=USER_PERMS[username]||{...GRANULAR_PERMS_DEFAULT};
+  try{
+    const resp=await fetch('/api/users');
+    if(resp.ok){
+      const users=await resp.json();
+      const serverUser=users.find(x=>x.username===username);
+      if(serverUser&&serverUser.perms){
+        // 合并服务器权限（显式配置）与默认值
+        const merged={...GRANULAR_PERMS_DEFAULT};
+        for(const k of Object.keys(GRANULAR_PERMS_DEFAULT)){
+          if(k in serverUser.perms) merged[k]=serverUser.perms[k];
+        }
+        perms=merged;
+      }
+    }
+  }catch(e){console.warn('从服务器获取权限失败，使用本地数据:',e);}
+  renderPermEditForm(perms);
   openModal('editPermModal');
 }
-const permLabels = { scan_view:'扫描查看', scan_bind:'绑定单位', records_view:'查看记录', records_delete:'删除记录', records_export:'导出记录', records_import:'导入记录', units_view:'单位查看', units_delete:'删除单位', units_import:'导入单位', users_manage:'用户管理' };
+const permLabels = { scan_view:'扫描查看', scan_bind:'绑定单位', records_view:'查看记录', records_delete:'删除记录', records_export:'导出记录', records_import:'导入记录', units_view:'单位查看', units_create:'创建单位', units_delete:'删除单位', units_import:'导入单位', users_manage:'用户管理' };
 function renderPermEditForm(perms){
   const groups = [
     {label:'扫描', keys:['scan_view','scan_bind']},
     {label:'记录', keys:['records_view','records_delete','records_export','records_import']},
-    {label:'单位管理', keys:['units_view','units_delete','units_import']},
+    {label:'单位管理', keys:['units_view','units_create','units_delete','units_import']},
     {label:'用户管理', keys:['users_manage']}
   ];
+  const myPerms=getPerms();
+  const canEditAnyPerm=isAdmin()||isDeptAdmin();
   let html='';
   groups.forEach(g=>{
     html+='<div style="margin-bottom:8px"><div class="perm-section-label">'+g.label+'</div>';
-    g.keys.forEach(k=>{html+='<div class="perm-item"><div><div class="perm-label">'+permLabels[k]+'</div></div><button class="toggle-sw'+(perms[k]!==false?' on':'')+'" data-perm-key="'+k+'" onclick="editPermToggle(this)"></button></div>';});
+    g.keys.forEach(k=>{
+      // dept_admin只能编辑自己拥有的权限，admin不受限
+      const canEdit=isAdmin()||(isDeptAdmin()&&myPerms[k]!==false);
+      const val=perms[k]!==false;
+      html+='<div class="perm-item"><div><div class="perm-label">'+permLabels[k]+'</div></div>';
+      if(canEdit){
+        html+='<button class="toggle-sw'+(val?' on':'')+'" data-perm-key="'+k+'" onclick="editPermToggle(this)"></button>';
+      }else{
+        html+='<span class="tag '+(val?'tag-green':'tag-red')+'">'+(val?'允许':'禁止')+'</span>';
+      }
+      html+='</div>';
+    });
     html+='</div>';
   });
   document.getElementById('editPermGroups').innerHTML=html;
@@ -1162,10 +1193,22 @@ async function saveUserPerms(){
   if(!_editingPermUser)return;
   const perms={};
   document.querySelectorAll('#editPermGroups .toggle-sw').forEach(btn=>{perms[btn.dataset.permKey]=btn.classList.contains('on');});
+  // 向下委托校验：非admin不能分配自己没有的权限
+  if(!isAdmin()){
+    const myPerms=getPerms();
+    for(const [k,v] of Object.entries(perms)){
+      if(v&&myPerms[k]===false){
+        showToast('不能分配自身没有的权限: '+permLabels[k]);
+        return;
+      }
+    }
+  }
   USER_PERMS[_editingPermUser]=perms;savePerms();
   // 同步到服务器
   try{
-    await fetch('/api/users/'+_editingPermUser+'/perms',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(perms)});
+    const resp=await fetch('/api/users/'+_editingPermUser+'/perms',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(perms)});
+    const res=await resp.json();
+    if(!resp.ok||!res.success){showToast(res.error||'权限保存失败');return;}
   }catch(e){console.warn('权限同步到服务器失败:',e);}
   closeModal('editPermModal');renderUserList();
   if(DB.currentUser&&DB.currentUser.username===_editingPermUser)renderMine();
