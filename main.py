@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-采灵 v12.0 — Flask + WebView Bootstrap 方案（WifiBridge原生扫描版）
+采灵 v17.0 — Flask + WebView Bootstrap 方案（WifiBridge原生扫描版）
 
 核心改动：WiFi扫描通过Java原生WifiBridge（addJavascriptInterface）完成，
 不再依赖Python/jnius调用Android API（v10-v11均因此失败）。
@@ -263,7 +263,7 @@ def api_wifi_query():
     try:
         import api_client
         if not api_client.is_logged_in():
-            return jsonify({"records": [], "total": 0, "page": 1, "page_size": 50})
+            return jsonify({"error": "未登录", "auth_required": True}), 401
         ssid = request.args.get('ssid', '')
         bssid = request.args.get('bssid', '')
         band = request.args.get('band', '')
@@ -275,6 +275,10 @@ def api_wifi_query():
             unit_id=unit_id, page=page, page_size=page_size
         )
         return jsonify({"records": records, "total": total, "page": page, "page_size": page_size})
+    except RuntimeError as e:
+        if "未登录" in str(e):
+            return jsonify({"error": str(e), "auth_required": True}), 401
+        return jsonify({"records": [], "total": 0, "page": 1, "page_size": 50, "error": str(e)})
     except Exception as e:
         return jsonify({"records": [], "total": 0, "page": 1, "page_size": 50, "error": str(e)})
 
@@ -288,6 +292,10 @@ def api_wifi_bind(wifi_id):
         unit_id = data.get('unit_id')
         ok = api_client.bind_wifi_server(wifi_id, unit_id)
         return jsonify({"success": ok})
+    except RuntimeError as e:
+        if "未登录" in str(e):
+            return jsonify({"error": str(e), "auth_required": True}), 401
+        return jsonify({"success": False, "error": str(e)})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 
@@ -298,11 +306,17 @@ def api_wifi_bulk_bind():
     try:
         import api_client
         data = request.get_json(force=True)
-        bssids = data.get('bssids', [])
-        unit_id = data.get('unit_id')
-        unit_name = data.get('unit_name', '')
-        count = api_client.bulk_bind_wifi_server(bssids, unit_id, unit_name)
-        return jsonify({"count": count})
+        status, result = api_client.bulk_bind_wifi_server(
+            bssids=data.get('bssids', []),
+            unit_name=data.get('unit_name', ''),
+            wifi_details=data.get('wifi_details'),
+            force=data.get('force', False)
+        )
+        return jsonify(result), status
+    except RuntimeError as e:
+        if "未登录" in str(e):
+            return jsonify({"error": str(e), "auth_required": True}), 401
+        return jsonify({"count": 0, "error": str(e)})
     except Exception as e:
         return jsonify({"count": 0, "error": str(e)})
 
@@ -314,6 +328,10 @@ def api_wifi_delete(wifi_id):
         import api_client
         ok = api_client.delete_wifi_server(wifi_id)
         return jsonify({"success": ok})
+    except RuntimeError as e:
+        if "未登录" in str(e):
+            return jsonify({"error": str(e), "auth_required": True}), 401
+        return jsonify({"success": False, "error": str(e)})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 
@@ -325,8 +343,11 @@ def api_wifi_delete_by_bssid(bssid):
         import api_client
         ok = api_client.delete_wifi_by_bssid_server(bssid)
         return jsonify({"success": ok})
-    except Exception as e:
+    except RuntimeError as e:
+        if "未登录" in str(e):
+            return jsonify({"error": str(e), "auth_required": True}), 401
         return jsonify({"success": False, "error": str(e)})
+    except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 
 
@@ -339,6 +360,10 @@ def api_wifi_bulk_delete():
         ids = data.get('ids', [])
         ok = api_client.bulk_delete_wifi_server(ids)
         return jsonify({"success": ok})
+    except RuntimeError as e:
+        if "未登录" in str(e):
+            return jsonify({"error": str(e), "auth_required": True}), 401
+        return jsonify({"success": False, "error": str(e)})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 
@@ -353,7 +378,7 @@ def api_units_query():
     try:
         import api_client
         if not api_client.is_logged_in():
-            return jsonify({"records": [], "total": 0})
+            return jsonify({"error": "未登录", "auth_required": True}), 401
         keyword = request.args.get('keyword', '')
         page = request.args.get('page', 1, type=int)
         page_size = request.args.get('page_size', 50, type=int)
@@ -361,6 +386,10 @@ def api_units_query():
             keyword=keyword, page=page, page_size=page_size
         )
         return jsonify({"records": records, "total": total})
+    except RuntimeError as e:
+        if "未登录" in str(e):
+            return jsonify({"error": str(e), "auth_required": True}), 401
+        return jsonify({"records": [], "total": 0, "error": str(e)})
     except Exception as e:
         return jsonify({"records": [], "total": 0, "error": str(e)})
 
@@ -370,10 +399,16 @@ def api_units_all():
     """获取全部单位"""
     try:
         import api_client
+        if not api_client.is_logged_in():
+            return jsonify({"error": "未登录", "auth_required": True}), 401
         units = api_client.get_all_units_server()
         return jsonify({"units": units})
-    except Exception:
+    except RuntimeError as e:
+        if "未登录" in str(e):
+            return jsonify({"error": str(e), "auth_required": True}), 401
         return jsonify({"units": []})
+    except Exception as e:
+        return jsonify({"units": [], "error": str(e)})
 
 
 @app.route('/api/units', methods=['POST'])
@@ -388,6 +423,10 @@ def api_units_add():
             data.get('address', '')
         )
         return jsonify({"success": ok})
+    except RuntimeError as e:
+        if "未登录" in str(e):
+            return jsonify({"error": str(e), "auth_required": True}), 401
+        return jsonify({"success": False, "error": str(e)})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 
@@ -405,6 +444,10 @@ def api_units_update(uid):
             data.get('address', '')
         )
         return jsonify({"success": ok})
+    except RuntimeError as e:
+        if "未登录" in str(e):
+            return jsonify({"error": str(e), "auth_required": True}), 401
+        return jsonify({"success": False, "error": str(e)})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 
@@ -422,6 +465,10 @@ def api_units_update_by_name(unit_name):
             data.get('address', '')
         )
         return jsonify({"success": ok})
+    except RuntimeError as e:
+        if "未登录" in str(e):
+            return jsonify({"error": str(e), "auth_required": True}), 401
+        return jsonify({"success": False, "error": str(e)})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 
@@ -433,6 +480,10 @@ def api_units_delete(uid):
         import api_client
         ok = api_client.delete_unit_server(uid)
         return jsonify({"success": ok})
+    except RuntimeError as e:
+        if "未登录" in str(e):
+            return jsonify({"error": str(e), "auth_required": True}), 401
+        return jsonify({"success": False, "error": str(e)})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 
@@ -444,13 +495,16 @@ def api_units_delete_by_name(unit_name):
         import api_client
         ok = api_client.delete_unit_by_name_server(unit_name)
         return jsonify({"success": ok})
+    except RuntimeError as e:
+        if "未登录" in str(e):
+            return jsonify({"error": str(e), "auth_required": True}), 401
+        return jsonify({"success": False, "error": str(e)})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 
 
 # ══════════════════════════════════════════════════════════
 #  API 路由 — 用户管理（代理到远程服务器）
-#  【新增】v10.1 — 修复密码修改和用户删除
 # ══════════════════════════════════════════════════════════
 
 @app.route('/api/users', methods=['GET'])
@@ -458,8 +512,14 @@ def api_users_list():
     """获取用户列表"""
     try:
         import api_client
+        if not api_client.is_logged_in():
+            return jsonify({"error": "未登录", "auth_required": True}), 401
         users = api_client.get_users_server()
         return jsonify(users)
+    except RuntimeError as e:
+        if "未登录" in str(e):
+            return jsonify({"error": str(e), "auth_required": True}), 401
+        return jsonify([])
     except Exception as e:
         return jsonify([])
 
@@ -473,9 +533,15 @@ def api_users_add():
         ok, msg = api_client.add_user_server(
             data.get('display_name', ''),
             data.get('username', ''),
-            data.get('password', '')
+            data.get('password', ''),
+            role=data.get('role', 'operator'),
+            dept_id=data.get('dept_id')
         )
         return jsonify({"success": ok, "message": msg})
+    except RuntimeError as e:
+        if "未登录" in str(e):
+            return jsonify({"error": str(e), "auth_required": True}), 401
+        return jsonify({"success": False, "error": str(e)})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 
@@ -487,6 +553,10 @@ def api_users_delete(username):
         import api_client
         ok = api_client.delete_user_server(username)
         return jsonify({"success": ok})
+    except RuntimeError as e:
+        if "未登录" in str(e):
+            return jsonify({"error": str(e), "auth_required": True}), 401
+        return jsonify({"success": False, "error": str(e)})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 
@@ -503,6 +573,10 @@ def api_users_change_password(username):
             data.get('new_password', '')
         )
         return jsonify({"success": ok, "message": msg})
+    except RuntimeError as e:
+        if "未登录" in str(e):
+            return jsonify({"error": str(e), "auth_required": True}), 401
+        return jsonify({"success": False, "error": str(e)})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 
@@ -515,6 +589,10 @@ def api_users_set_perms(username):
         data = request.get_json(force=True)
         ok = api_client.set_user_perms_server(username, data)
         return jsonify({"success": ok})
+    except RuntimeError as e:
+        if "未登录" in str(e):
+            return jsonify({"error": str(e), "auth_required": True}), 401
+        return jsonify({"success": False, "error": str(e)})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 
@@ -528,12 +606,61 @@ def api_wifi_sync():
         records = data.get('records', [])
         if not records:
             return jsonify({"ok": 0, "skip": 0, "update": 0})
-        if api_client.is_logged_in():
-            sync_ok, sync_skip = api_client.upload_wifi_records(records)
-            return jsonify({"ok": sync_ok, "skip": sync_skip, "update": 0})
-        return jsonify({"ok": 0, "skip": len(records), "update": 0})
+        if not api_client.is_logged_in():
+            return jsonify({"error": "未登录", "auth_required": True}), 401
+        sync_ok, sync_skip = api_client.upload_wifi_records(records)
+        return jsonify({"ok": sync_ok, "skip": sync_skip, "update": 0})
+    except RuntimeError as e:
+        if "未登录" in str(e):
+            return jsonify({"error": str(e), "auth_required": True}), 401
+        return jsonify({"ok": 0, "skip": 0, "update": 0, "error": str(e)})
     except Exception as e:
         return jsonify({"ok": 0, "skip": 0, "update": 0, "error": str(e)})
+
+
+# ══════════════════════════════════════════════════════════
+#  API 路由 — 部门管理（代理到远程服务器）
+# ══════════════════════════════════════════════════════════
+
+@app.route('/api/departments', methods=['GET'])
+def api_departments_list():
+    try:
+        import api_client
+        depts = api_client.get_departments_server()
+        return jsonify({"departments": depts})
+    except RuntimeError as e:
+        if "未登录" in str(e):
+            return jsonify({"error": str(e), "auth_required": True}), 401
+        return jsonify({"departments": [], "error": str(e)})
+    except Exception as e:
+        return jsonify({"departments": [], "error": str(e)})
+
+@app.route('/api/departments', methods=['POST'])
+def api_departments_add():
+    try:
+        import api_client
+        data = request.get_json(force=True)
+        ok = api_client.create_department_server(data.get('dept_name', ''))
+        return jsonify({"success": ok})
+    except RuntimeError as e:
+        if "未登录" in str(e):
+            return jsonify({"error": str(e), "auth_required": True}), 401
+        return jsonify({"success": False, "error": str(e)})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route('/api/departments/<int:dept_id>', methods=['DELETE'])
+def api_departments_delete(dept_id):
+    try:
+        import api_client
+        ok = api_client.delete_department_server(dept_id)
+        return jsonify({"success": ok})
+    except RuntimeError as e:
+        if "未登录" in str(e):
+            return jsonify({"error": str(e), "auth_required": True}), 401
+        return jsonify({"success": False, "error": str(e)})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
 
 
 # ══════════════════════════════════════════════════════════
@@ -547,6 +674,10 @@ def api_stats():
         import api_client
         stats = api_client.get_stats_server()
         return jsonify(stats)
+    except RuntimeError as e:
+        if "未登录" in str(e):
+            return jsonify({"error": str(e), "auth_required": True}), 401
+        return jsonify({})
     except Exception:
         return jsonify({})
 
@@ -564,6 +695,10 @@ def api_export():
             return send_from_directory(tempfile.gettempdir(), 'wifi_export.csv', as_attachment=True)
         else:
             return jsonify({"success": False, "error": result})
+    except RuntimeError as e:
+        if "未登录" in str(e):
+            return jsonify({"error": str(e), "auth_required": True}), 401
+        return jsonify({"success": False, "error": str(e)})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 
@@ -624,6 +759,10 @@ def api_config_get():
         import api_client
         config = api_client.get_config_server()
         return jsonify(config)
+    except RuntimeError as e:
+        if "未登录" in str(e):
+            return jsonify({"error": str(e), "auth_required": True}), 401
+        return jsonify({})
     except Exception:
         return jsonify({})
 
@@ -636,6 +775,10 @@ def api_config_set():
         data = request.get_json(force=True)
         ok = api_client.set_config_server(data)
         return jsonify({"success": ok})
+    except RuntimeError as e:
+        if "未登录" in str(e):
+            return jsonify({"error": str(e), "auth_required": True}), 401
+        return jsonify({"success": False, "error": str(e)})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 
@@ -645,7 +788,7 @@ def api_config_set():
 # ══════════════════════════════════════════════════════════
 
 def main():
-    print('[Cailing] === v16.1 Flask Server ===')
+    print('[Cailing] === v17.0 Flask Server ===')
     print(f'[Cailing] IS_ANDROID={IS_ANDROID}')
     print('[Cailing] WiFi扫描已改用Java原生WifiBridge，JS直接调用window.WifiBridge.scanWifi()')
 

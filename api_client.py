@@ -17,6 +17,40 @@ SERVER_URL = os.environ.get("CAILING_SERVER", "http://121.4.28.216:8080")
 _auth_token = None
 _current_user = None
 
+# ── Token 持久化 ──
+_TOKEN_FILE = os.path.join(os.path.expanduser('~'), '.cailing_token')
+
+def _save_token(token):
+    global _auth_token
+    _auth_token = token
+    try:
+        with open(_TOKEN_FILE, 'w') as f:
+            f.write(token or '')
+    except Exception:
+        pass
+
+def _load_token():
+    global _auth_token
+    try:
+        if os.path.exists(_TOKEN_FILE):
+            with open(_TOKEN_FILE, 'r') as f:
+                token = f.read().strip()
+                if token:
+                    _auth_token = token
+                    return True
+    except Exception:
+        pass
+    return False
+
+def _clear_token():
+    global _auth_token
+    _auth_token = None
+    try:
+        if os.path.exists(_TOKEN_FILE):
+            os.remove(_TOKEN_FILE)
+    except Exception:
+        pass
+
 
 def get_server_url():
     return SERVER_URL
@@ -94,6 +128,7 @@ def _request(method, path, data=None, files=None):
                 m = re.search(r"cailing_token=([^;]+)", set_cookie)
                 if m:
                     _auth_token = m.group(1)
+                    _save_token(_auth_token)
             try:
                 result = json.loads(resp.read().decode("utf-8"))
             except Exception:
@@ -125,9 +160,10 @@ def login(username, password):
     if status == 200 and data and data.get("success"):
         _current_user = data.get("user", {})
         # token 可能从response header或body获取
+        _save_token(_auth_token)
         return True, _current_user
     else:
-        _auth_token = None
+        _clear_token()
         _current_user = None
         error = data.get("error", "登录失败") if data else "网络错误"
         return False, error
@@ -135,10 +171,10 @@ def login(username, password):
 
 def logout():
     """登出服务器"""
-    global _auth_token, _current_user
+    global _current_user
     if _auth_token:
         _request("POST", "/api/logout")
-    _auth_token = None
+    _clear_token()
     _current_user = None
 
 
@@ -161,7 +197,7 @@ def upload_wifi_records(records):
     返回: (成功数, 跳过数)
     """
     if not _auth_token:
-        return 0, len(records)
+        raise RuntimeError("未登录")
     status, data = _request("POST", "/api/wifi/sync", {"records": records})
     if status == 200 and data:
         return data.get("ok", 0), data.get("skip", 0)
@@ -174,7 +210,7 @@ def query_wifi_server(ssid="", bssid="", band="", unit_id=None, bound="", page=1
     返回: (records_list, total)
     """
     if not _auth_token:
-        return [], 0
+        raise RuntimeError("未登录")
     params = []
     if ssid: params.append(f"ssid={urllib.parse.quote(ssid)}")
     if bssid: params.append(f"bssid={urllib.parse.quote(bssid)}")
@@ -194,7 +230,7 @@ def query_wifi_server(ssid="", bssid="", band="", unit_id=None, bound="", page=1
 def delete_wifi_server(wifi_id):
     """从服务器删除WiFi记录"""
     if not _auth_token:
-        return False
+        raise RuntimeError("未登录")
     status, _ = _request("DELETE", f"/api/wifi/{wifi_id}")
     return status == 200
 
@@ -202,7 +238,7 @@ def delete_wifi_server(wifi_id):
 def delete_wifi_by_bssid_server(bssid):
     """按BSSID从服务器删除WiFi记录"""
     if not _auth_token:
-        return False
+        raise RuntimeError("未登录")
     import urllib.parse
     status, _ = _request("DELETE", f"/api/wifi/bssid/{urllib.parse.quote(bssid, safe='')}")
     return status == 200
@@ -211,7 +247,7 @@ def delete_wifi_by_bssid_server(bssid):
 def bulk_delete_wifi_server(ids):
     """从服务器批量删除WiFi记录"""
     if not _auth_token:
-        return False
+        raise RuntimeError("未登录")
     status, _ = _request("POST", "/api/wifi/bulk-delete", {"ids": ids})
     return status == 200
 
@@ -219,22 +255,20 @@ def bulk_delete_wifi_server(ids):
 def bind_wifi_server(wifi_id, unit_id):
     """在服务器上绑定WiFi到单位"""
     if not _auth_token:
-        return False
+        raise RuntimeError("未登录")
     status, _ = _request("PUT", f"/api/wifi/{wifi_id}/bind", {"unit_id": unit_id})
     return status == 200
 
 
-def bulk_bind_wifi_server(bssids, unit_id, unit_name=''):
+def bulk_bind_wifi_server(bssids, unit_name='', wifi_details=None, force=False):
     """在服务器上批量绑定WiFi到单位"""
     if not _auth_token:
-        return 0
-    payload = {"bssids": bssids, "unit_name": unit_name}
-    if unit_id:
-        payload["unit_id"] = unit_id
+        raise RuntimeError("未登录")
+    payload = {"bssids": bssids, "unit_name": unit_name, "force": force}
+    if wifi_details:
+        payload["wifi_details"] = wifi_details
     status, data = _request("POST", "/api/wifi/bulk-bind", payload)
-    if status == 200 and data:
-        return data.get("count", 0)
-    return 0
+    return status, data  # 返回完整响应，让前端处理conflicts
 
 
 # ══════════════════════════════════════════════════════════
@@ -244,7 +278,7 @@ def bulk_bind_wifi_server(bssids, unit_id, unit_name=''):
 def query_units_server(keyword="", page=1, page_size=50):
     """从服务器查询单位列表"""
     if not _auth_token:
-        return [], 0
+        raise RuntimeError("未登录")
     params = []
     if keyword: params.append(f"keyword={urllib.parse.quote(keyword)}")
     params.append(f"page={page}")
@@ -260,7 +294,7 @@ def query_units_server(keyword="", page=1, page_size=50):
 def get_all_units_server():
     """从服务器获取全部单位（下拉选择用）"""
     if not _auth_token:
-        return []
+        raise RuntimeError("未登录")
     status, data = _request("GET", "/api/units/all")
     if status == 200 and isinstance(data, dict):
         return data.get("units", [])
@@ -272,7 +306,7 @@ def get_all_units_server():
 def add_unit_server(name, code, addr):
     """在服务器上新增单位"""
     if not _auth_token:
-        return False
+        raise RuntimeError("未登录")
     status, _ = _request("POST", "/api/units", {"unit_name": name, "credit_code": code, "address": addr})
     return status == 200
 
@@ -280,7 +314,7 @@ def add_unit_server(name, code, addr):
 def update_unit_server(uid, name, code, addr):
     """在服务器上修改单位"""
     if not _auth_token:
-        return False
+        raise RuntimeError("未登录")
     status, _ = _request("PUT", f"/api/units/{uid}", {"unit_name": name, "credit_code": code, "address": addr})
     return status == 200
 
@@ -288,7 +322,7 @@ def update_unit_server(uid, name, code, addr):
 def update_unit_by_name_server(old_name, name, code, addr):
     """按单位名称在服务器上修改单位"""
     if not _auth_token:
-        return False
+        raise RuntimeError("未登录")
     import urllib.parse
     status, _ = _request("PUT", f"/api/units/name/{urllib.parse.quote(old_name, safe='')}", {"unit_name": name, "credit_code": code, "address": addr})
     return status == 200
@@ -297,7 +331,7 @@ def update_unit_by_name_server(old_name, name, code, addr):
 def delete_unit_server(uid):
     """在服务器上删除单位"""
     if not _auth_token:
-        return False
+        raise RuntimeError("未登录")
     status, _ = _request("DELETE", f"/api/units/{uid}")
     return status == 200
 
@@ -305,7 +339,7 @@ def delete_unit_server(uid):
 def delete_unit_by_name_server(unit_name):
     """按单位名称从服务器删除单位"""
     if not _auth_token:
-        return False
+        raise RuntimeError("未登录")
     import urllib.parse
     status, _ = _request("DELETE", f"/api/units/name/{urllib.parse.quote(unit_name, safe='')}")
     return status == 200
@@ -314,7 +348,7 @@ def delete_unit_by_name_server(unit_name):
 def import_units_server(filepath):
     """上传文件到服务器导入单位"""
     if not _auth_token:
-        return 0, 1, ["未登录"]
+        raise RuntimeError("未登录")
     with open(filepath, "rb") as f:
         file_data = f.read()
     filename = os.path.basename(filepath)
@@ -331,7 +365,7 @@ def import_units_server(filepath):
 def export_wifi_server(filepath):
     """从服务器导出WiFi数据CSV"""
     if not _auth_token:
-        return False, "未登录"
+        raise RuntimeError("未登录")
     url = SERVER_URL + "/api/export?format=csv"
     headers = {}
     if _auth_token:
@@ -354,18 +388,21 @@ def export_wifi_server(filepath):
 def get_users_server():
     """获取服务器上用户列表（管理员）"""
     if not _auth_token:
-        return []
+        raise RuntimeError("未登录")
     status, data = _request("GET", "/api/users")
     if status == 200 and isinstance(data, list):
         return data
     return []
 
 
-def add_user_server(display_name, username, password):
+def add_user_server(display_name, username, password, role='operator', dept_id=None):
     """在服务器上新增用户（管理员）"""
     if not _auth_token:
-        return False, "未登录"
-    status, data = _request("POST", "/api/users", {"display_name": display_name, "username": username, "password": password})
+        raise RuntimeError("未登录")
+    payload = {"display_name": display_name, "username": username, "password": password, "role": role}
+    if dept_id is not None:
+        payload["dept_id"] = dept_id
+    status, data = _request("POST", "/api/users", payload)
     if status == 200:
         return True, "创建成功"
     return False, data.get("error", "创建失败") if data else "网络错误"
@@ -374,7 +411,7 @@ def add_user_server(display_name, username, password):
 def delete_user_server(username):
     """在服务器上删除用户（管理员）"""
     if not _auth_token:
-        return False
+        raise RuntimeError("未登录")
     status, _ = _request("DELETE", f"/api/users/{username}")
     return status == 200
 
@@ -382,7 +419,7 @@ def delete_user_server(username):
 def change_password_server(username, old_password, new_password):
     """修改密码"""
     if not _auth_token:
-        return False, "未登录"
+        raise RuntimeError("未登录")
     status, data = _request("PUT", f"/api/users/{username}/password", {"old_password": old_password, "new_password": new_password})
     if status == 200:
         return True, "修改成功"
@@ -392,8 +429,33 @@ def change_password_server(username, old_password, new_password):
 def set_user_perms_server(username, perms):
     """设置用户权限（管理员）"""
     if not _auth_token:
-        return False
+        raise RuntimeError("未登录")
     status, _ = _request("PUT", f"/api/users/{username}/perms", perms)
+    return status == 200
+
+
+# ══════════════════════════════════════════════════════════
+#  部门管理 API
+# ══════════════════════════════════════════════════════════
+
+def get_departments_server():
+    if not _auth_token:
+        raise RuntimeError("未登录")
+    status, data = _request("GET", "/api/departments")
+    if status == 200 and isinstance(data, dict):
+        return data.get("departments", [])
+    return []
+
+def create_department_server(dept_name):
+    if not _auth_token:
+        raise RuntimeError("未登录")
+    status, data = _request("POST", "/api/departments", {"dept_name": dept_name})
+    return status == 200
+
+def delete_department_server(dept_id):
+    if not _auth_token:
+        raise RuntimeError("未登录")
+    status, _ = _request("DELETE", f"/api/departments/{dept_id}")
     return status == 200
 
 
@@ -404,7 +466,7 @@ def set_user_perms_server(username, perms):
 def get_stats_server():
     """获取服务器端统计数据"""
     if not _auth_token:
-        return {}
+        raise RuntimeError("未登录")
     status, data = _request("GET", "/api/stats")
     if status == 200:
         return data
@@ -414,7 +476,7 @@ def get_stats_server():
 def get_config_server():
     """获取服务器端配置"""
     if not _auth_token:
-        return {}
+        raise RuntimeError("未登录")
     status, data = _request("GET", "/api/config")
     if status == 200:
         return data
@@ -424,83 +486,10 @@ def get_config_server():
 def set_config_server(config):
     """更新服务器端配置"""
     if not _auth_token:
-        return False
+        raise RuntimeError("未登录")
     status, _ = _request("PUT", "/api/config", config)
     return status == 200
 
 
-# ══════════════════════════════════════════════════════════
-#  便捷函数：同步本地操作到服务器
-# ══════════════════════════════════════════════════════════
-
-def sync_save_wifi_records(records):
-    """
-    保存WiFi记录：本地数据库 + 服务器同步
-    records: list of dict
-    返回: (本地成功数, 本地跳过数, 服务器成功数, 服务器跳过数)
-    """
-    import database
-    # 1. 写入本地数据库
-    ok_local, skip_local = database.save_wifi_records(records)
-    # 2. 同步到服务器
-    ok_server, skip_server = upload_wifi_records(records)
-    return ok_local, skip_local, ok_server, skip_server
-
-
-def sync_bind_wifi(wifi_id, unit_id):
-    """
-    绑定WiFi到单位：本地 + 服务器
-    """
-    import database
-    database.bind_wifi_unit(wifi_id, unit_id)
-    bind_wifi_server(wifi_id, unit_id)
-
-
-def sync_add_unit(name, code, addr):
-    """
-    新增单位：本地 + 服务器
-    """
-    import database
-    ok = database.add_unit(name, code, addr)
-    if ok:
-        add_unit_server(name, code, addr)
-    return ok
-
-
-def sync_update_unit(uid, name, code, addr):
-    """
-    修改单位：本地 + 服务器
-    """
-    import database
-    ok = database.update_unit(uid, name, code, addr)
-    if ok:
-        update_unit_server(uid, name, code, addr)
-    return ok
-
-
-def sync_delete_unit(uid):
-    """
-    删除单位：本地 + 服务器
-    """
-    import database
-    database.delete_unit(uid)
-    delete_unit_server(uid)
-
-
-def sync_delete_wifi(wifi_id):
-    """
-    删除WiFi记录：本地 + 服务器
-    """
-    import database
-    database.delete_wifi(wifi_id)
-    delete_wifi_server(wifi_id)
-
-
-def sync_delete_units_by_ids(ids):
-    """
-    批量删除单位：本地 + 服务器
-    """
-    import database
-    database.delete_units_by_ids(ids)
-    for uid in ids:
-        delete_unit_server(uid)
+# 模块加载时尝试恢复token
+_load_token()
