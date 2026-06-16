@@ -224,11 +224,14 @@ def bind_wifi_server(wifi_id, unit_id):
     return status == 200
 
 
-def bulk_bind_wifi_server(bssids, unit_id):
+def bulk_bind_wifi_server(bssids, unit_id, unit_name=''):
     """在服务器上批量绑定WiFi到单位"""
     if not _auth_token:
         return 0
-    status, data = _request("POST", "/api/wifi/bulk-bind", {"bssids": bssids, "unit_id": unit_id})
+    payload = {"bssids": bssids, "unit_name": unit_name}
+    if unit_id:
+        payload["unit_id"] = unit_id
+    status, data = _request("POST", "/api/wifi/bulk-bind", payload)
     if status == 200 and data:
         return data.get("count", 0)
     return 0

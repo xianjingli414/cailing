@@ -300,7 +300,8 @@ def api_wifi_bulk_bind():
         data = request.get_json(force=True)
         bssids = data.get('bssids', [])
         unit_id = data.get('unit_id')
-        count = api_client.bulk_bind_wifi_server(bssids, unit_id)
+        unit_name = data.get('unit_name', '')
+        count = api_client.bulk_bind_wifi_server(bssids, unit_id, unit_name)
         return jsonify({"count": count})
     except Exception as e:
         return jsonify({"count": 0, "error": str(e)})
@@ -644,7 +645,7 @@ def api_config_set():
 # ══════════════════════════════════════════════════════════
 
 def main():
-    print('[Cailing] === v16.0 Flask Server ===')
+    print('[Cailing] === v16.1 Flask Server ===')
     print(f'[Cailing] IS_ANDROID={IS_ANDROID}')
     print('[Cailing] WiFi扫描已改用Java原生WifiBridge，JS直接调用window.WifiBridge.scanWifi()')
 
