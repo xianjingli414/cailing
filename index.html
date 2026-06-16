@@ -349,7 +349,7 @@
     <div class="form-item"><div class="form-label">显示名称 *</div><input class="form-input" id="newUserDisplay" placeholder="例如：张三"></div>
     <div class="form-item"><div class="form-label">登录账号 *</div><input class="form-input" id="newUserName" placeholder="英文账号"></div>
     <div class="form-item"><div class="form-label">登录密码 *</div><input class="form-input" id="newUserPass" type="password" placeholder="至少4位"></div>
-    <div class="form-item" id="newUserRoleItem"><div class="form-label">角色 *</div><select class="form-input" id="newUserRole"><option value="operator">操作员</option><option value="dept_admin">部门管理员</option></select></div>
+    <div class="form-item" id="newUserRoleItem"><div class="form-label">角色 *</div><select class="form-input" id="newUserRole"></select></div>
     <div class="form-item" id="newUserDeptItem"><div class="form-label">所属部门 *</div><select class="form-input" id="newUserDept"></select></div>
     <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal('addUserModal')">取消</button><button class="btn btn-primary" onclick="submitAddUser()">创建</button></div>
   </div>
@@ -996,7 +996,7 @@ function renderMine(){
     document.getElementById('mineSubtitle').textContent=DB.currentUser.role==='admin'?'管理员 · 可管理用户与权限':'已登录 · '+DB.currentUser.displayName;
     document.getElementById('permAvatar').textContent=(DB.currentUser.displayName||'U')[0];
     document.getElementById('permName').textContent=DB.currentUser.displayName||DB.currentUser.username;
-    const roleMap={admin:'系统管理员',dept_admin:'部门管理员',operator:'操作员'};document.getElementById('permRole').textContent=(roleMap[DB.currentUser.role]||DB.currentUser.role)+(DB.currentUser.dept_name?' · '+DB.currentUser.dept_name:'');
+    document.getElementById('permRole').textContent=(roleMap[DB.currentUser.role]||DB.currentUser.role)+(DB.currentUser.dept_name?' · '+DB.currentUser.dept_name:'');
     updateUserBadge();
 
     if(isAdmin()){
@@ -1026,13 +1026,33 @@ function renderMine(){
   }
 }
 function toggleModule(key,btn){if(!isAdmin())return;DB.moduleVisibility[key]=!(DB.moduleVisibility[key]!==false);DB.saveModules();btn.classList.toggle('on',DB.moduleVisibility[key]!==false);applyModuleVisibility();showToast('模块可见性已更新');}
-function renderUserList(){
-  const el=document.getElementById('userList'), html=USERS.map(u=>{
-    const perms=u.role==='admin'?{...GRANULAR_PERMS_DEFAULT}:(USER_PERMS[u.username]||{...GRANULAR_PERMS_DEFAULT});
+async function renderUserList(){
+  // 优先从服务器获取用户列表
+  let serverUsers=[];
+  try{
+    const resp=await fetch('/api/users');
+    if(resp.ok){
+      const data=await resp.json();
+      if(Array.isArray(data)){
+        serverUsers=data;
+        // 同步到本地 USERS
+        for(const su of serverUsers){
+          const idx=USERS.findIndex(u=>u.username===su.username);
+          const localUser={username:su.username,role:su.role,displayName:su.display_name||su.displayName||su.username,dept_name:su.dept_name||''};
+          if(idx>=0)USERS[idx]=localUser; else USERS.push(localUser);
+          if(su.perms)USER_PERMS[su.username]=su.perms;
+        }
+        saveUsers();savePerms();
+      }
+    }
+  }catch(e){console.warn('从服务器获取用户列表失败:',e);}
+  const el=document.getElementById('userList'), displayUsers=serverUsers.length?serverUsers.map(su=>({username:su.username,role:su.role,displayName:su.display_name||su.displayName||su.username,dept_name:su.dept_name||'',perms:su.perms||USER_PERMS[su.username]||{...GRANULAR_PERMS_DEFAULT}})):USERS;
+  const html=displayUsers.map(u=>{
+    const perms=u.role==='admin'?{...GRANULAR_PERMS_DEFAULT}:(u.perms||USER_PERMS[u.username]||{...GRANULAR_PERMS_DEFAULT});
     const permKeys=Object.keys(GRANULAR_PERMS_DEFAULT);
     const active=permKeys.filter(k=>perms[k]!==false).length, total=permKeys.length;
     const chips=permKeys.slice(0,4).map(k=>'<span class="perm-chip'+(perms[k]===false?' off':'')+'">'+permLabels[k]+'</span>').join('');
-    return '<div class="user-list-item"><div class="user-avatar" style="width:40px;height:40px;font-size:14px;'+(u.role==='admin'?'background:var(--primary);color:#fff':'')+'">'+(u.displayName||'?')[0]+'</div><div style="flex:1;min-width:0"><div style="font-size:15px;font-weight:500">'+u.displayName+' <span class="tag tag-blue" style="font-size:10px">'+u.role+'</span></div><div style="font-size:12px;color:var(--text3);margin-top:2px">'+u.username+' · 权限 '+active+'/'+total+'</div><div style="margin-top:3px">'+chips+'</div></div><div style="display:flex;gap:6px;flex-shrink:0">'+(u.role!=='admin'?'<button class="btn btn-xs btn-outline" onclick="editUserPerms(\''+u.username+'\')">权限</button><button class="btn btn-xs" style="background:#fff2f0;color:var(--danger)" onclick="deleteUser(\''+u.username+'\')">删除</button>':'')+'</div></div>';
+    return '<div class="user-list-item"><div class="user-avatar" style="width:40px;height:40px;font-size:14px;'+(u.role==='admin'?'background:var(--primary);color:#fff':'')+'">'+(u.displayName||'?')[0]+'</div><div style="flex:1;min-width:0"><div style="font-size:15px;font-weight:500">'+u.displayName+' <span class="tag tag-blue" style="font-size:10px">'+(roleMap[u.role]||u.role)+'</span>'+(u.dept_name?' <span class="tag" style="font-size:10px;background:#f0f5ff;color:var(--primary)">'+u.dept_name+'</span>':'')+'</div><div style="font-size:12px;color:var(--text3);margin-top:2px">'+u.username+' · 权限 '+active+'/'+total+'</div><div style="margin-top:3px">'+chips+'</div></div><div style="display:flex;gap:6px;flex-shrink:0">'+(u.role!=='admin'?'<button class="btn btn-xs btn-outline" onclick="editUserPerms(\''+u.username+'\')">权限</button><button class="btn btn-xs" style="background:#fff2f0;color:var(--danger)" onclick="deleteUser(\''+u.username+'\')">删除</button>':'')+'</div></div>';
   }).join('');
   el.innerHTML=html||'<div style="text-align:center;padding:20px;color:var(--text3);font-size:14px">暂无其他用户</div>';
 }
@@ -1097,26 +1117,38 @@ async function doLogout(){
 }
 function updateUserBadge(){const badge=document.getElementById('userBadge'),avatar=document.getElementById('userAvatar'),label=document.getElementById('userLabel');if(DB.currentUser){badge.className='user-badge'+(DB.currentUser.role==='admin'?' admin':'');avatar.textContent=(DB.currentUser.displayName||'U')[0];label.textContent=DB.currentUser.displayName;}else{badge.className='user-badge';avatar.textContent='?';label.textContent='未登录';}}
 
+const roleMap={admin:'系统管理员',dept_admin:'部门管理员',operator:'操作员'};
+
 // ══════════════════════ USER MANAGEMENT ACTIONS ══════════════════════
-async function showAddUser(){document.getElementById('addUserTitle').textContent='添加用户';['newUserDisplay','newUserName','newUserPass'].forEach(id=>document.getElementById(id).value='');document.getElementById('newUserRoleItem').style.display=isAdmin()?'':'none';if(!isAdmin())document.getElementById('newUserDeptItem').style.display='none';else{document.getElementById('newUserDeptItem').style.display='';try{const resp=await fetch('/api/departments');const data=await resp.json();const select=document.getElementById('newUserDept');select.innerHTML=(data.departments||[]).map(d=>'<option value="'+d.id+'">'+d.dept_name+'</option>').join('');}catch(e){}}openModal('addUserModal');}
+async function showAddUser(){document.getElementById('addUserTitle').textContent='添加用户';['newUserDisplay','newUserName','newUserPass'].forEach(id=>document.getElementById(id).value='');const roleSelect=document.getElementById('newUserRole');if(isAdmin()){document.getElementById('newUserRoleItem').style.display='';document.getElementById('newUserDeptItem').style.display='';roleSelect.innerHTML='<option value="operator">操作员</option><option value="dept_admin">部门管理员</option><option value="admin">系统管理员</option>';try{const resp=await fetch('/api/departments');const data=await resp.json();const select=document.getElementById('newUserDept');select.innerHTML=(data.departments||[]).map(d=>'<option value="'+d.id+'">'+d.dept_name+'</option>').join('');}catch(e){}}else if(isDeptAdmin()){document.getElementById('newUserRoleItem').style.display='';document.getElementById('newUserDeptItem').style.display='none';roleSelect.innerHTML='<option value="operator">操作员</option>';}else{document.getElementById('newUserRoleItem').style.display='none';document.getElementById('newUserDeptItem').style.display='none';}openModal('addUserModal');}
 async function submitAddUser(){
   const display=document.getElementById('newUserDisplay').value.trim(),name=document.getElementById('newUserName').value.trim(),pass=document.getElementById('newUserPass').value.trim();
   if(!display||!name||!pass){showToast('所有字段为必填');return;}
   if(pass.length<4){showToast('密码至少4位');return;}
   if(USERS.find(u=>u.username===name)){showToast('该账号已存在');return;}
+  // 获取角色：admin/dept_admin可从表单选择，operator默认
+  let newRole='operator';
+  const roleSelect=document.getElementById('newUserRole');
+  if(roleSelect&&roleSelect.value){newRole=roleSelect.value;}
+  // dept_admin只能创建operator
+  if(isDeptAdmin()){newRole='operator';}
+  // 获取部门
+  let deptId=null;
+  if(isAdmin()){const deptSelect=document.getElementById('newUserDept');if(deptSelect&&deptSelect.value)deptId=parseInt(deptSelect.value);}
+  else if(isDeptAdmin()){deptId=DB.currentUser.dept_id;}
   // 优先通过 Flask API 创建用户到服务器
   try{
-    const resp=await fetch('/api/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({display_name:display,username:name,password:pass,role:document.getElementById('newUserRole').value,dept_id:document.getElementById('newUserDept').value?parseInt(document.getElementById('newUserDept').value):null})});
+    const resp=await fetch('/api/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({display_name:display,username:name,password:pass,role:newRole,dept_id:deptId})});
     const res=await resp.json();
     if(res.success){
-      USERS.push({username:name,password:pass,role:'user',displayName:display,password_changed_at:new Date().toISOString()});
+      USERS.push({username:name,password:pass,role:newRole,displayName:display,password_changed_at:new Date().toISOString()});
       USER_PERMS[name]={...GRANULAR_PERMS_DEFAULT};
       saveUsers();savePerms();
       closeModal('addUserModal');renderUserList();showToast('用户「'+display+'」已创建（已同步服务器）');return;
     }else{showToast(res.error||res.message||'创建失败');return;}
   }catch(e){console.warn('Flask API 创建用户失败，仅本地创建:',e);}
   // 降级：仅本地创建
-  USERS.push({username:name,password:pass,role:'user',displayName:display,password_changed_at:new Date().toISOString()});
+  USERS.push({username:name,password:pass,role:newRole,displayName:display,password_changed_at:new Date().toISOString()});
   USER_PERMS[name] = {...GRANULAR_PERMS_DEFAULT};
   saveUsers(); savePerms();
   closeModal('addUserModal'); renderUserList(); showToast('用户「'+display+'」已创建（仅本地）');
