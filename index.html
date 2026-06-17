@@ -1327,6 +1327,24 @@ if (!isApp) {
 }
 applyModuleVisibility();updateUserBadge();
 
+// ══════════════════════ TOKEN 有效性检查 ══════════════════════
+// APP启动时检测token是否有效，无效则清除本地登录状态并跳转登录页
+if (isApp && DB.currentUser) {
+  (async function checkTokenValid() {
+    try {
+      const resp = await fetch('/api/current-user');
+      if (resp.status === 401) {
+        // token已失效，清除本地登录状态
+        DB.currentUser = null; DB.saveUser();
+        try { await fetch('/api/logout', {method:'POST'}); } catch(e) {}
+        applyModuleVisibility(); updateUserBadge();
+        switchPage('mine');
+        showToast('登录已过期，请重新登录');
+      }
+    } catch(e) { console.warn('Token检查失败:', e); }
+  })();
+}
+
 // ══════════════════════ ANDROID/MOBILE HEIGHT FIX ══════════════════════
 // Fix "100vh" issue on Android Chrome where address bar changes viewport height
 function setAppHeight(){const vh=window.innerHeight;document.documentElement.style.setProperty('--real-vh',vh+'px');document.querySelector('.app').style.height=(vh-document.querySelector('.status-bar').offsetHeight)+'px';}
