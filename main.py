@@ -142,7 +142,7 @@ def api_wifi_scan():
         r = _scan_android(max_results=max_results)
         if not r:
             return jsonify({"status": "empty", "message": "未扫描到WiFi，请确认已授予位置权限且WiFi已开启"})
-        return jsonify(r)
+        return jsonify({"data": r})
     except Exception as e:
         traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)})

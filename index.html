@@ -671,6 +671,8 @@ async function startScan() {
       const raw = await resp.json();
       if (raw && raw.data && !raw.status) {
         wifiList = raw.data;
+      } else if (raw && Array.isArray(raw) && raw.length > 0) {
+        wifiList = raw;
       } else if (raw && raw.status === 'empty') { wifiList = []; }
     } catch(e) { console.warn('Flask API扫描失败:', e); }
   }
@@ -750,6 +752,7 @@ async function _refreshScan() {
       const resp = await fetch('/api/wifi/scan', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({max_results:10})});
       const raw = await resp.json();
       if (raw && raw.data && !raw.status) wifiList = raw.data;
+      else if (raw && Array.isArray(raw) && raw.length > 0) wifiList = raw;
     } catch(e) { console.warn('自动刷新失败:', e); }
   }
 
