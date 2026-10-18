@@ -37,6 +37,28 @@ jobs:
         rm -rf ~/.buildozer ~/.android
 
     # ══════════════════════════════════════════════════════════
+    # 准备修补过的 python-for-android
+    # 修复：p4a 在 venv 内执行 `pip install -U pip`，升级过程会把 pip 自身弄坏
+    # （ImportError: cannot import name 'BuildDependencyInstallError'），
+    # 导致后续所有 pip 调用失败（表现为各种 "from versions: none"）。
+    # venv 自带的 pip 本身是完整的，因此跳过该升级即可。
+    # 用 p4a.source_dir 指定本地目录，buildozer 不会再对该目录做 git 更新。
+    # ══════════════════════════════════════════════════════════
+    - name: "Prepare patched python-for-android"
+      run: |
+        set -e
+        rm -rf ~/p4a-src
+        git clone --depth 1 https://github.com/kivy/python-for-android.git ~/p4a-src
+        sed -i "s|pip install -U pip|echo skip-pip-upgrade|" ~/p4a-src/pythonforandroid/build.py
+        echo "=== 验证 patch 结果 ==="
+        grep -n "skip-pip-upgrade" ~/p4a-src/pythonforandroid/build.py
+        if grep -q "pip install -U pip" ~/p4a-src/pythonforandroid/build.py; then
+          echo "ERROR: patch 未生效，仍存在 pip 自升级"
+          exit 1
+        fi
+        echo "✅ p4a 已修补，pip 自升级已跳过"
+
+    # ══════════════════════════════════════════════════════════
     # 第一步：只运行一次 buildozer，生成初始 APK + dist
     # 不再运行第二次 buildozer（它会覆盖我们的 patch）
     # ══════════════════════════════════════════════════════════
