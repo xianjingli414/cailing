@@ -48,15 +48,19 @@ jobs:
       run: |
         set -e
         rm -rf ~/p4a-src
-        git clone --depth 1 https://github.com/kivy/python-for-android.git ~/p4a-src
+        # 必须显式指定 master：p4a 的默认分支是 develop，而 buildozer 默认用的是 master，
+        # 只有 master 的 build.py 含待修补的 pip 自升级语句
+        git clone --depth 1 -b master https://github.com/kivy/python-for-android.git ~/p4a-src
+        if ! grep -q "pip install -U pip" ~/p4a-src/pythonforandroid/build.py; then
+          echo "ERROR: 未找到 pip 自升级字符串，无法修补"
+          exit 1
+        fi
         sed -i "s|pip install -U pip|echo skip-pip-upgrade|" ~/p4a-src/pythonforandroid/build.py
-        echo "=== 验证 patch 结果 ==="
-        grep -n "skip-pip-upgrade" ~/p4a-src/pythonforandroid/build.py
         if grep -q "pip install -U pip" ~/p4a-src/pythonforandroid/build.py; then
           echo "ERROR: patch 未生效，仍存在 pip 自升级"
           exit 1
         fi
-        echo "✅ p4a 已修补，pip 自升级已跳过"
+        echo "✅ p4a(master) 已修补: $(grep -n 'skip-pip-upgrade' ~/p4a-src/pythonforandroid/build.py)"
 
     # ══════════════════════════════════════════════════════════
     # 第一步：只运行一次 buildozer，生成初始 APK + dist
