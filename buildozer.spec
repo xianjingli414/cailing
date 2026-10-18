@@ -14,6 +14,8 @@ requirements = python3,flask,pyjnius
 # webview bootstrap
 p4a.bootstrap = webview
 p4a.port = 5000
+# 使用本地修补过的 p4a（跳过 venv 内 pip 自升级，避免 pip 损坏导致构建失败）
+p4a.source_dir = ~/p4a-src
 
 # ── 权限声明（完整格式，包含 android.permission. 前缀）──
 # 必须使用 p4a 权限参数，确保写入 AndroidManifest.xml
