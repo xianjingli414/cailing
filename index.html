@@ -174,7 +174,7 @@
 
 <div class="status-bar">
   <span class="time" id="clock">15:30</span>
-  <span style="font-size:11px;color:var(--text3)">v17.1</span>
+  <span style="font-size:11px;color:var(--text3)">v17.2</span>
   <button class="user-badge" id="userBadge" onclick="switchPage('mine')">
     <div class="user-avatar" id="userAvatar">客</div>
     <span id="userLabel">游客</span>
@@ -632,6 +632,42 @@ async function _ensurePermissions() {
   return true;
 }
 
+// ══ GPS 定位（Promise 封装 + 短期缓存）══
+// 修复：原先 getCurrentPosition 是异步回调，而 scanResults 由同步 map 生成，
+// 回调还没回来坐标就被读取，导致 gpsLat/gpsLng 恒为 null，采集记录永远丢失经纬度。
+// 现改为 await 等待定位返回；60 秒内复用缓存，避免 15 秒自动刷新反复等待定位。
+let _gpsCache = { lat: null, lng: null, ts: 0 };
+const GPS_CACHE_MS = 60000;
+
+function getGpsPosition() {
+  return new Promise(resolve => {
+    try {
+      // 60秒内的定位结果直接复用，不阻塞界面
+      if (_gpsCache.lat !== null && (Date.now() - _gpsCache.ts) < GPS_CACHE_MS) {
+        return resolve({ lat: _gpsCache.lat, lng: _gpsCache.lng });
+      }
+      if (!navigator.geolocation) {
+        console.warn('[Cailing] GPS不可用: navigator.geolocation 不存在');
+        return resolve({ lat: null, lng: null });
+      }
+      navigator.geolocation.getCurrentPosition(
+        pos => {
+          _gpsCache = { lat: pos.coords.latitude, lng: pos.coords.longitude, ts: Date.now() };
+          resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        },
+        err => {
+          console.warn('[Cailing] GPS定位失败:', err.message);
+          resolve({ lat: null, lng: null });
+        },
+        { enableHighAccuracy: true, timeout: 5000, maximumAge: 30000 }
+      );
+    } catch(e) {
+      console.warn('[Cailing] GPS异常:', e);
+      resolve({ lat: null, lng: null });
+    }
+  });
+}
+
 async function startScan() {
   if (scanning) return;
   const permOk = await _ensurePermissions();
@@ -692,17 +728,8 @@ async function startScan() {
 
   // 格式化结果
   if (wifiList && wifiList.length > 0) {
-    // 获取当前GPS位置（异步，不阻塞扫描结果展示）
-    let gpsLat = null, gpsLng = null;
-    try {
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          pos => { gpsLat = pos.coords.latitude; gpsLng = pos.coords.longitude; },
-          err => { console.warn('GPS定位失败:', err.message); },
-          { enableHighAccuracy: true, timeout: 5000, maximumAge: 30000 }
-        );
-      }
-    } catch(e) { console.warn('GPS不可用:', e); }
+    // 先 await 获取当前GPS位置，确保采集记录能真实带上经纬度
+    const gps = await getGpsPosition();
 
     // 格式化结果（不自动保存到记录，只有用户手动保存/绑定才入记录）
     scanResults = wifiList.map(r => ({
@@ -710,8 +737,8 @@ async function startScan() {
       channel: r.channel || 0, encrypt_type: r.encrypt_type || '未知',
       band: r.band || '2.4G', vendor: r.vendor || '未知',
       collect_time: new Date().toLocaleString(),
-      latitude: r.latitude || gpsLat || null,
-      longitude: r.longitude || gpsLng || null
+      latitude: r.latitude || gps.lat || null,
+      longitude: r.longitude || gps.lng || null
     }));
     // 注意：不再自动 scanResults.forEach(r => DB.addWifi(r));
   } else if (wifiList && wifiList.length === 0) {
@@ -757,11 +784,15 @@ async function _refreshScan() {
   }
 
   if (wifiList && wifiList.length > 0) {
+    // 自动刷新同样 await 定位（60秒内走缓存，几乎不耗时），保证记录带经纬度
+    const gps = await getGpsPosition();
     scanResults = wifiList.map(r => ({
       ssid: r.ssid || '', bssid: r.bssid || '', signal: r.signal || 0,
       channel: r.channel || 0, encrypt_type: r.encrypt_type || '未知',
       band: r.band || '2.4G', vendor: r.vendor || '未知',
-      collect_time: new Date().toLocaleString()
+      collect_time: new Date().toLocaleString(),
+      latitude: r.latitude || gps.lat || null,
+      longitude: r.longitude || gps.lng || null
     }));
     // 不自动保存到记录，只有用户手动保存/绑定才入记录
   } else if (wifiList && wifiList.length === 0) {

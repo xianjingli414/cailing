@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-采灵 v17.0 — Flask + WebView Bootstrap 方案（WifiBridge原生扫描版）
+采灵 v17.2 — Flask + WebView Bootstrap 方案（WifiBridge原生扫描版）
 
 核心改动：WiFi扫描通过Java原生WifiBridge（addJavascriptInterface）完成，
 不再依赖Python/jnius调用Android API（v10-v11均因此失败）。
@@ -788,7 +788,7 @@ def api_config_set():
 # ══════════════════════════════════════════════════════════
 
 def main():
-    print('[Cailing] === v17.0 Flask Server ===')
+    print('[Cailing] === v17.2 Flask Server ===')
     print(f'[Cailing] IS_ANDROID={IS_ANDROID}')
     print('[Cailing] WiFi扫描已改用Java原生WifiBridge，JS直接调用window.WifiBridge.scanWifi()')
 
