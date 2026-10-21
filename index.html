@@ -174,7 +174,7 @@
 
 <div class="status-bar">
   <span class="time" id="clock">15:30</span>
-  <span style="font-size:11px;color:var(--text3)">v17.4</span>
+  <span style="font-size:11px;color:var(--text3)">v17.5</span>
   <button class="user-badge" id="userBadge" onclick="switchPage('mine')">
     <div class="user-avatar" id="userAvatar">客</div>
     <span id="userLabel">游客</span>
@@ -338,6 +338,8 @@
     <div class="form-item"><div class="form-label">单位名称 *</div><input class="form-input" id="unitName" placeholder="请输入单位全称"></div>
     <div class="form-item"><div class="form-label">统一社会信用代码 *</div><input class="form-input" id="unitCode" placeholder="18位信用代码" maxlength="18" style="font-family:monospace"></div>
     <div class="form-item"><div class="form-label">地址 *</div><input class="form-input" id="unitAddr" placeholder="详细地址"></div>
+    <div class="form-item"><div class="form-label">纬度</div><input class="form-input" id="unitLat" placeholder="如 30.171503（WGS84，可留空）" inputmode="decimal"></div>
+    <div class="form-item"><div class="form-label">经度</div><input class="form-input" id="unitLng" placeholder="如 120.385533（WGS84，可留空）" inputmode="decimal"></div>
     <div class="form-actions"><button class="btn btn-ghost" onclick="closeModal('addUnitModal')">取消</button><button class="btn btn-primary" onclick="submitUnit()">保存</button></div>
   </div>
 </div>
@@ -445,6 +447,7 @@ const DB = {
           this.units.unshift({
             id: this._nextUnitId++, unit_name: u.unit_name,
             credit_code: u.credit_code || '', address: u.address || '',
+            latitude: (u.latitude != null ? u.latitude : null), longitude: (u.longitude != null ? u.longitude : null),
             create_time: u.create_time || new Date().toLocaleString('zh-CN')
           });
           newUnits++;
@@ -1076,9 +1079,17 @@ function renderUnits(){document.getElementById('unitsSubtitle').textContent='共
   let html='';for(const u of rows){const cnt=DB.wifiRecords.filter(r=>r.unit_id===u.id).length;html+='<div class="unit-item"><div class="unit-avatar">'+(u.unit_name[0]||'?')+'</div><div class="unit-body"><div class="unit-name">'+u.unit_name+'</div><div class="unit-code">'+u.credit_code+'</div><div class="unit-addr">'+u.address+'</div><div style="margin-top:4px"><span class="tag tag-blue">关联 '+cnt+' 个 WiFi</span></div></div><div class="unit-right">'+(showEdit?'<button class="btn btn-sm btn-outline" onclick="editUnit('+u.id+')">编辑</button>':'')+(showDel?'<button class="btn btn-sm" style="background:#fff2f0;color:var(--danger)" onclick="deleteUnit('+u.id+')">删除</button>':'')+'</div></div>';}
   list.innerHTML=html;
 }
-function showAddUnit(){if(!hasPerm('units_view')){showToast('添加单位功能已被管理员限制');return;}editingUnitId=null;document.getElementById('unitModalTitle').textContent='添加单位';['unitName','unitCode','unitAddr'].forEach(id=>document.getElementById(id).value='');openModal('addUnitModal');}
-function editUnit(id){if(!hasPerm('units_view')){showToast('编辑单位功能已被管理员限制');return;}const u=DB.units.find(x=>x.id===id);if(!u)return;editingUnitId=id;document.getElementById('unitModalTitle').textContent='编辑单位';document.getElementById('unitName').value=u.unit_name;document.getElementById('unitCode').value=u.credit_code;document.getElementById('unitAddr').value=u.address;openModal('addUnitModal');}
-function submitUnit(){const name=document.getElementById('unitName').value.trim(),code=document.getElementById('unitCode').value.trim(),addr=document.getElementById('unitAddr').value.trim();if(!name){showToast('请输入单位名称');return;}if(!code){showToast('请输入信用代码');return;}if(!addr){showToast('请输入地址');return;}if(editingUnitId){const oldUnit=DB.units.find(x=>x.id===editingUnitId);DB.updateUnit(editingUnitId,{unit_name:name,credit_code:code,address:addr});showToast('已更新');if(oldUnit)fetch('/api/units/name/'+encodeURIComponent(oldUnit.unit_name),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({unit_name:name,credit_code:code,address:addr})}).catch(()=>{});}else{if(DB.addUnit({unit_name:name,credit_code:code,address:addr})){showToast('添加成功');fetch('/api/units',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({unit_name:name,credit_code:code,address:addr})}).catch(()=>{});}else{showToast('该单位名称已存在');}}closeModal('addUnitModal');updateStats();renderUnits();}
+function showAddUnit(){if(!hasPerm('units_view')){showToast('添加单位功能已被管理员限制');return;}editingUnitId=null;document.getElementById('unitModalTitle').textContent='添加单位';['unitName','unitCode','unitAddr','unitLat','unitLng'].forEach(id=>document.getElementById(id).value='');openModal('addUnitModal');}
+function editUnit(id){if(!hasPerm('units_view')){showToast('编辑单位功能已被管理员限制');return;}const u=DB.units.find(x=>x.id===id);if(!u)return;editingUnitId=id;document.getElementById('unitModalTitle').textContent='编辑单位';document.getElementById('unitName').value=u.unit_name;document.getElementById('unitCode').value=u.credit_code;document.getElementById('unitAddr').value=u.address;document.getElementById('unitLat').value=(u.latitude!=null?u.latitude:'');document.getElementById('unitLng').value=(u.longitude!=null?u.longitude:'');openModal('addUnitModal');}
+function submitUnit(){
+const name=document.getElementById('unitName').value.trim(),code=document.getElementById('unitCode').value.trim(),addr=document.getElementById('unitAddr').value.trim();
+const latRaw=document.getElementById('unitLat').value.trim(),lngRaw=document.getElementById('unitLng').value.trim();
+const lat=(latRaw==='')?null:Number(latRaw),lng=(lngRaw==='')?null:Number(lngRaw);
+if(latRaw!==''&&isNaN(lat)){showToast('纬度必须是数字');return;}
+if(lngRaw!==''&&isNaN(lng)){showToast('经度必须是数字');return;}
+if(!name){showToast('请输入单位名称');return;}if(!code){showToast('请输入信用代码');return;}if(!addr){showToast('请输入地址');return;}
+const payload={unit_name:name,credit_code:code,address:addr,latitude:lat,longitude:lng};
+if(editingUnitId){const oldUnit=DB.units.find(x=>x.id===editingUnitId);DB.updateUnit(editingUnitId,payload);showToast('已更新');if(oldUnit)fetch('/api/units/name/'+encodeURIComponent(oldUnit.unit_name),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).catch(()=>{});}else{if(DB.addUnit(payload)){showToast('添加成功');fetch('/api/units',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).catch(()=>{});}else{showToast('该单位名称已存在');}}closeModal('addUnitModal');updateStats();renderUnits();}
 function deleteUnit(id){if(!hasPerm('units_delete')){showToast('删除单位功能已被管理员限制');return;}const boundCount=DB.wifiRecords.filter(r=>r.unit_id===id).length;if(!confirm('确定删除该单位？'+(boundCount>0?'该单位下已绑定的 '+boundCount+' 条WiFi记录将被一并删除，':'')+'此操作不可恢复。'))return;const u=DB.units.find(x=>x.id===id);DB.units=DB.units.filter(x=>x.id!==id);DB.wifiRecords=DB.wifiRecords.filter(r=>r.unit_id!==id);DB.saveUnits();DB.saveWifi();updateStats();renderUnits();renderRecords();showToast('已删除');if(u){fetch('/api/units/name/'+encodeURIComponent(u.unit_name),{method:'DELETE'}).then(r=>r.json()).then(data=>{if(data.deleted_wifi>0)showToast('已同步删除 '+data.deleted_wifi+' 条WiFi记录');}).catch(()=>{});}}
 function triggerUnitImport(){if(!hasPerm('units_import')){showToast('导入功能已被管理员限制');return;}document.getElementById('unitFileInput').click();}
 function importUnitsXlsx(e){const file=e.target.files[0];e.target.value='';if(!file)return;const reader=new FileReader();reader.onload=function(ev){try{const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});const ws=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(ws,{header:1});if(rows.length<2){showToast('xlsx 文件格式不正确或无数据');return;}let cnt=0,skip=0;for(let i=1;i<rows.length;i++){const cols=rows[i];if(!cols||cols.length<3)continue;const name=String(cols[0]||'').trim(),code=String(cols[1]||'').trim(),addr=String(cols[2]||'').trim();if(!name)continue;if(DB.addUnit({unit_name:name,credit_code:code,address:addr})){cnt++;fetch('/api/units',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({unit_name:name,credit_code:code,address:addr})}).catch(()=>{});}else{skip++;}}updateStats();renderUnits();showToast('导入 '+cnt+' 条'+(skip>0?'（'+skip+' 条重复已跳过）':''));}catch(err){showToast('xlsx 解析失败: '+err.message);}};reader.readAsArrayBuffer(file);}
