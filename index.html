@@ -861,10 +861,61 @@ function openScanDetail(bssid) {
   const saved = DB.wifiRecords.find(x=>x.bssid===r.bssid), btn = document.getElementById('detailSaveBtn');
   if (saved) { btn.innerHTML = saved.unit_name ? '已保存 · '+saved.unit_name : '已保存'; btn.disabled = true; }
   else { btn.innerHTML = '<svg viewBox="0 0 24 24" style="width:16px;height:16px;fill:none;stroke:#fff;stroke-width:2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> 保存到记录库'; btn.disabled = false; }
-  document.getElementById('detailContent').innerHTML = dRow('SSID',r.ssid||'<隐藏网络>')+dRow('BSSID',r.bssid)+dRow('信号强度',r.signal+' dBm')+dRow('信道',r.channel)+dRow('频段',r.band)+dRow('加密方式',r.encrypt_type)+dRow('厂商',r.vendor)+dRow('经度',r.longitude||'未知')+dRow('纬度',r.latitude||'未知');
+  document.getElementById('detailContent').innerHTML = dRow('SSID',r.ssid||'<隐藏网络>')+dRow('BSSID',r.bssid)+dRow('信号强度',r.signal+' dBm')+dRow('信道',r.channel)+dRow('频段',r.band)+dRow('加密方式',r.encrypt_type)+dRow('厂商',r.vendor)+dRowMap(r.latitude, r.longitude, r.ssid);
   openModal('wifiDetailModal');
 }
 function dRow(l,v) { return '<div class="detail-row"><div class="detail-label">'+l+'</div><div class="detail-value">'+v+'</div></div>'; }
+
+// ══════════ 地图定位（WGS84→GCJ-02 + 高德地图）══════════
+// GPS采集到的是WGS84坐标，高德/腾讯地图用GCJ-02（火星坐标），
+// 不转换直接显示会偏移数百米，故跳转前先做坐标转换
+const _MPI = 3.1415926535897932384626, _MA = 6378245.0, _MEE = 0.00669342162296594323;
+function _outOfChina(lat,lng){ return (lng<72.004 || lng>137.8347 || lat<0.8293 || lat>55.8271); }
+function _tLat(x,y){
+  let r = -100.0 + 2.0*x + 3.0*y + 0.2*y*y + 0.1*x*y + 0.2*Math.sqrt(Math.abs(x));
+  r += (20.0*Math.sin(6.0*x*_MPI) + 20.0*Math.sin(2.0*x*_MPI)) * 2.0/3.0;
+  r += (20.0*Math.sin(y*_MPI) + 40.0*Math.sin(y/3.0*_MPI)) * 2.0/3.0;
+  r += (160.0*Math.sin(y/12.0*_MPI) + 320*Math.sin(y*_MPI/30.0)) * 2.0/3.0;
+  return r;
+}
+function _tLng(x,y){
+  let r = 300.0 + x + 2.0*y + 0.1*x*x + 0.1*x*y + 0.1*Math.sqrt(Math.abs(x));
+  r += (20.0*Math.sin(6.0*x*_MPI) + 20.0*Math.sin(2.0*x*_MPI)) * 2.0/3.0;
+  r += (20.0*Math.sin(x*_MPI) + 40.0*Math.sin(x/3.0*_MPI)) * 2.0/3.0;
+  r += (150.0*Math.sin(x/12.0*_MPI) + 300.0*Math.sin(x/30.0*_MPI)) * 2.0/3.0;
+  return r;
+}
+function wgs84ToGcj02(lat,lng){
+  if (_outOfChina(lat,lng)) return [lat,lng];
+  let dLat = _tLat(lng-105.0, lat-35.0), dLng = _tLng(lng-105.0, lat-35.0);
+  const radLat = lat/180.0*_MPI;
+  let magic = Math.sin(radLat); magic = 1 - _MEE*magic*magic;
+  const sqrtMagic = Math.sqrt(magic);
+  dLat = (dLat*180.0) / ((_MA*(1-_MEE))/(magic*sqrtMagic)*_MPI);
+  dLng = (dLng*180.0) / (_MA/sqrtMagic*Math.cos(radLat)*_MPI);
+  return [lat+dLat, lng+dLng];
+}
+// 跳转高德地图查看该坐标
+function openAmap(lat,lng,name){
+  if (lat==null || lng==null || lat==='' || lng===''){ showToast('该记录没有经纬度'); return; }
+  lat = Number(lat); lng = Number(lng);
+  if (isNaN(lat) || isNaN(lng)){ showToast('经纬度无效'); return; }
+  const g = wgs84ToGcj02(lat, lng);
+  const url = 'https://uri.amap.com/marker?position=' + g[1].toFixed(6) + ',' + g[0].toFixed(6) +
+              '&name=' + encodeURIComponent(name || 'WiFi采集点') +
+              '&coordinate=gaode&callnative=1';
+  window.open(url, '_blank');
+}
+// 可点击的经纬度行（点击跳转高德地图）
+function dRowMap(lat,lng,name){
+  const has = (lat!=null && lng!=null && lat!=='' && lng!=='');
+  if (!has) return dRow('经纬度','未知');
+  const safeName = String(name||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+  return '<div class="detail-row" style="cursor:pointer" onclick="openAmap('+lat+','+lng+',\''+safeName+'\')">'+
+    '<div class="detail-label">经纬度</div>'+
+    '<div class="detail-value" style="color:var(--primary)">'+Number(lat).toFixed(6)+', '+Number(lng).toFixed(6)+
+    ' <span style="font-size:12px">📍 查看地图</span></div></div>';
+}
 function saveCurrentWifi() { if (!currentWifi) return; if(DB.addWifi({...currentWifi})){showToast('已保存到记录库');updateStats();renderScanList();}else{showToast('该 WiFi 已在记录库中');} closeModal('wifiDetailModal'); }
 
 // ══════════════════════ BATCH BAR ══════════════════════
@@ -1007,7 +1058,7 @@ function openRecordDetail(id){
     dRow('SSID',r.ssid||'<隐藏网络>')+dRow('BSSID',r.bssid)+dRow('信号强度',r.signal+' dBm')+
     dRow('信道',r.channel)+dRow('频段',r.band)+dRow('加密方式',r.encrypt_type)+dRow('厂商',r.vendor)+
     dRow('关联单位',r.unit_name||'未绑定')+dRow('采集时间',r.collect_time)+dRow('采集人',r.created_by||'本机')+
-    dRow('纬度',r.latitude?r.latitude.toFixed(6):'未知')+dRow('经度',r.longitude?r.longitude.toFixed(6):'未知');
+    dRowMap(r.latitude, r.longitude, r.ssid);
   openModal('wifiDetailModal');
 }
 function toggleRecordSelectAll(){const q=document.getElementById('recordSearch').value.toLowerCase();let rows=DB.wifiRecords.filter(r=>{if(!r.unit_name)return false;if(q&&!r.ssid.toLowerCase().includes(q)&&!r.bssid.toLowerCase().includes(q)&&!(r.unit_name&&r.unit_name.toLowerCase().includes(q))) return false;if(recordFilter==='2.4G'&&r.band!=='2.4G') return false;if(recordFilter==='5G'&&r.band!=='5G') return false;return true;});if(selectedRecordIds.size===rows.length) selectedRecordIds.clear();else rows.forEach(r=>selectedRecordIds.add(r.id));renderRecords();}
