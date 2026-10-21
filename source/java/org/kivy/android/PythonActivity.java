@@ -25,6 +25,7 @@ import android.webkit.WebViewClient;
 import android.webkit.JsResult;
 import android.webkit.JsPromptResult;
 import android.webkit.WebChromeClient;
+import android.webkit.GeolocationPermissions;
 import android.widget.AbsoluteLayout;
 import android.widget.ImageView;
 import android.widget.Toast;
@@ -182,6 +183,9 @@ public class PythonActivity extends Activity {
             // [CAILING PATCH] Allow local file access for Flask assets
             mWebView.getSettings().setAllowFileAccessFromFileURLs(true);
             mWebView.getSettings().setAllowUniversalAccessFromFileURLs(true);
+            // [CAILING PATCH] 开启WebView定位。默认关闭，不开则 navigator.geolocation
+            // 直接失败，WiFi采集记录永远拿不到经纬度
+            mWebView.getSettings().setGeolocationEnabled(true);
             // [CAILING PATCH] Create and inject WifiBridge for native WiFi scanning
             mWifiBridge = new WifiBridge(PythonActivity.mActivity);
             mWebView.addJavascriptInterface(mWifiBridge, "WifiBridge");
@@ -231,6 +235,11 @@ public class PythonActivity extends Activity {
                         .setOnCancelListener(dialog -> result.confirm())
                         .show();
                     return true;
+                }
+                // [CAILING PATCH] 授予网页定位权限（配合 setGeolocationEnabled，让JS能取到经纬度）
+                @Override
+                public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) {
+                    callback.invoke(origin, true, false);
                 }
                 // [CAILING PATCH] 支持 <input type="file"> 文件选择
                 @Override

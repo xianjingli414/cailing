@@ -6,7 +6,7 @@ package.domain = com.cailing
 source.dir = .
 source.include_exts = py,png,jpg,kv,atlas,html,db,json,java,ico
 
-version = 17.2
+version = 17.3
 
 # ── 关键：使用 webview bootstrap
 requirements = python3,flask,pyjnius
@@ -42,8 +42,8 @@ android.sdk = 33
 android.arch = arm64-v8a
 
 android.allow_backup = True
-android.stringversion = 17.2
-android.version_code = 19
+android.stringversion = 17.3
+android.version_code = 20
 
 # 日志级别
 android.logcat_filters = *:S python:D
