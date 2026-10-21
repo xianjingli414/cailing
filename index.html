@@ -174,7 +174,7 @@
 
 <div class="status-bar">
   <span class="time" id="clock">15:30</span>
-  <span style="font-size:11px;color:var(--text3)">v17.3</span>
+  <span style="font-size:11px;color:var(--text3)">v17.4</span>
   <button class="user-badge" id="userBadge" onclick="switchPage('mine')">
     <div class="user-avatar" id="userAvatar">客</div>
     <span id="userLabel">游客</span>
@@ -907,7 +907,7 @@ async function _executeBind(bssids, unitId, u) {
     bssids.forEach(bssid => {
         const r = scanResultMap[bssid] || DB.wifiRecords.find(x => x.bssid === bssid);
         if (r) {
-            wifiDetails[bssid] = {ssid: r.ssid, signal: r.signal, channel: r.channel, encrypt_type: r.encrypt_type, band: r.band, vendor: r.vendor};
+            wifiDetails[bssid] = {ssid: r.ssid, signal: r.signal, channel: r.channel, encrypt_type: r.encrypt_type, band: r.band, vendor: r.vendor, latitude: r.latitude, longitude: r.longitude};
         }
     });
     try {
