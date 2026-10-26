@@ -174,7 +174,7 @@
 
 <div class="status-bar">
   <span class="time" id="clock">15:30</span>
-  <span style="font-size:11px;color:var(--text3)">v17.5</span>
+  <span style="font-size:11px;color:var(--text3)">v17.6</span>
   <button class="user-badge" id="userBadge" onclick="switchPage('mine')">
     <div class="user-avatar" id="userAvatar">客</div>
     <span id="userLabel">游客</span>
@@ -235,9 +235,46 @@
 <div class="page" id="page-units">
   <div class="page-header"><div><p class="page-title">单位管理</p><p class="page-subtitle" id="unitsSubtitle">共 0 个单位</p></div><div style="display:flex;gap:6px"><button class="btn btn-sm btn-outline" onclick="downloadUnitTemplate()">下载模板</button><button class="btn btn-sm btn-outline" id="unitImportBtn" onclick="triggerUnitImport()" style="display:none">导入</button></div></div>
   <div class="search-wrap"><div class="search-inner"><svg class="search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input class="search-input" id="unitSearch" placeholder="搜索单位名称或信用代码..." oninput="renderUnits()"></div></div>
+  <div class="filter-row" style="padding-top:6px" id="unitBindRow">
+    <div class="filter-chip active" onclick="setUnitFilter('bind','all',this)">全部绑定</div>
+    <div class="filter-chip" onclick="setUnitFilter('bind','bound',this)">已绑定</div>
+    <div class="filter-chip" onclick="setUnitFilter('bind','unbound',this)">未绑定</div>
+  </div>
+  <div class="filter-row" style="padding-top:0" id="unitGeoRow">
+    <div class="filter-chip active" onclick="setUnitFilter('geo','all',this)">全部坐标</div>
+    <div class="filter-chip" onclick="setUnitFilter('geo','has',this)">有经纬度</div>
+    <div class="filter-chip" onclick="setUnitFilter('geo','none',this)">无经纬度</div>
+  </div>
   <div class="card card-last" id="unitList" style="margin-top:8px"><div class="empty"><svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg><p>暂无单位数据</p></div></div>
   <button class="fab" id="unitFab" onclick="showAddUnit()"><svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
   <input type="file" id="unitFileInput" accept=".xlsx" onchange="importUnitsXlsx(event)" style="display:none">
+</div>
+
+<!-- ══════════════ STATS（仅网页端，App端隐藏）══════════════ -->
+<div class="page" id="page-stats">
+  <div class="page-header"><div><p class="page-title">统计</p><p class="page-subtitle" id="statsSubtitle">绑定与经纬度采集情况</p></div>
+    <div style="display:flex;gap:6px"><button class="btn btn-sm btn-outline" onclick="renderStats()">刷新</button><button class="btn btn-sm btn-outline" onclick="exportStats()">导出</button></div>
+  </div>
+
+  <div class="card" style="margin:8px 12px">
+    <div class="section-title">总览</div>
+    <div id="statsOverview" style="padding:0 0 6px"></div>
+  </div>
+
+  <div class="card card-last" style="margin:8px 12px">
+    <div class="section-title">① WiFi 绑定单位情况</div>
+    <div id="statsBinding"></div>
+  </div>
+
+  <div class="card card-last" style="margin:8px 12px">
+    <div class="section-title">② 经纬度采集情况</div>
+    <div id="statsGeo"></div>
+  </div>
+
+  <div class="card card-last" style="margin:8px 12px">
+    <div class="section-title">③ 各用户采集数量</div>
+    <div id="statsUsers"></div>
+  </div>
 </div>
 
 <!-- ══════════════ MINE ══════════════ -->
@@ -293,6 +330,7 @@
   <button class="nav-item active app-only" id="nav-scan" onclick="switchPage('scan')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="currentColor"/></svg>扫描</button>
   <button class="nav-item" id="nav-records" onclick="switchPage('records')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>记录</button>
   <button class="nav-item" id="nav-units" onclick="switchPage('units')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg>单位</button>
+  <button class="nav-item web-only" id="nav-stats" onclick="switchPage('stats')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>统计</button>
   <button class="nav-item" id="nav-mine" onclick="switchPage('mine')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-7 8-7s8 3 8 7"/></svg>我的</button>
 </nav>
 </div>
@@ -531,7 +569,17 @@ const DB = {
   },
 
   addWifi(r) {
-    if (this.wifiRecords.find(x => x.bssid === r.bssid)) return false;
+    const exist = this.wifiRecords.find(x => x.bssid === r.bssid);
+    if (exist) {
+      // 已存在：本次扫描若带经纬度，则只更新坐标，保留单位绑定等已有信息
+      const hasNew = (r.latitude != null && r.latitude !== 0 && r.longitude != null && r.longitude !== 0);
+      if (hasNew) {
+        exist.latitude = r.latitude; exist.longitude = r.longitude;
+        exist.collect_time = new Date().toLocaleString('zh-CN');
+        this.saveWifi(); return true;
+      }
+      return false;
+    }
     r.id = this._nextWifiId++; r.collect_time = new Date().toLocaleString('zh-CN'); r.unit_id = null; r.unit_name = ''; r.exported = false;
     if (!r.latitude) r.latitude = null; if (!r.longitude) r.longitude = null;
     this.wifiRecords.unshift(r); this.saveWifi(); return true;
@@ -589,6 +637,7 @@ function switchPage(p) {
   if (p === 'records') { DB.syncFromServer().then(()=>renderRecords()).catch(()=>{}); renderRecords(); }
   if (p === 'units') { DB.syncFromServer().then(()=>renderUnits()).catch(()=>{}); renderUnits(); }
   if (p === 'mine') renderMine();
+  if (p === 'stats') renderStats();
   document.getElementById('page-' + p).scrollTop = 0;
   updateBatchBar();
 }
@@ -929,7 +978,7 @@ function updateBatchBar() {
     document.getElementById('batchBindBtn').style.display = hasPerm('scan_bind') ? '' : 'none';
   } else { bar.classList.remove('visible'); }
 }
-function batchSave(){if(currentPage!=='scan'||selectedBssids.size===0)return;let saved=0,skip=0;[...selectedBssids].forEach(bssid=>{const r=scanResultMap[bssid];if(r){if(DB.addWifi({...r})){saved++;}else{skip++;}}});updateStats();renderScanList();showToast('已保存 '+saved+' 条'+(skip>0?'（'+skip+' 条已存在）':''));}
+function batchSave(){if(currentPage!=='scan'||selectedBssids.size===0)return;let saved=0,skip=0;[...selectedBssids].forEach(bssid=>{const r=scanResultMap[bssid];if(r){if(DB.addWifi({...r})){saved++;}else{skip++;}}});updateStats();renderScanList();showToast('已保存/更新 '+saved+' 条'+(skip>0?'（'+skip+' 条已存在且无新坐标）':''));}
 function batchBind(){if(currentPage!=='scan'||selectedBssids.size===0||!hasPerm('scan_bind'))return;[...selectedBssids].forEach(bssid=>{const r=scanResultMap[bssid];if(r&&!DB.wifiRecords.find(x=>x.bssid===bssid))DB.addWifi({...r});});updateStats();document.getElementById('bindTitle').textContent='绑定单位';document.getElementById('bindSubtitle').textContent='将 '+selectedBssids.size+' 条 WiFi 统一绑定到：';document.getElementById('bindUnitSearch').value='';renderBindUnitList();openModal('bindUnitModal');}
 function doBind(unitId) {
   const bssids=[...selectedBssids];
@@ -1070,13 +1119,34 @@ function exportSelectedRecords(){if(!hasPerm('records_export')){showToast('导�
 
 // ══════════════════════ UNITS ══════════════════════
 let editingUnitId=null;
-function renderUnits(){document.getElementById('unitsSubtitle').textContent='共 '+DB.units.length+' 个单位';const q=document.getElementById('unitSearch').value.toLowerCase();let rows=DB.units.filter(u=>!q||u.unit_name.toLowerCase().includes(q)||u.credit_code.includes(q));const list=document.getElementById('unitList');
+let unitBindFilter='all', unitGeoFilter='all';
+function hasUnitCoord(u){ return !!(u && u.latitude!=null && u.latitude!==0 && u.longitude!=null && u.longitude!==0); }
+// 单位筛选：绑定状态 / 经纬度 —— 所有用户可用，不做权限限制
+function setUnitFilter(kind,val,el){
+  if(kind==='bind') unitBindFilter=val; else unitGeoFilter=val;
+  el.parentNode.querySelectorAll('.filter-chip').forEach(c=>c.classList.remove('active'));
+  el.classList.add('active');
+  renderUnits();
+}
+function renderUnits(){document.getElementById('unitsSubtitle').textContent='共 '+DB.units.length+' 个单位';const q=document.getElementById('unitSearch').value.toLowerCase();let rows=DB.units.filter(u=>!q||u.unit_name.toLowerCase().includes(q)||u.credit_code.includes(q));
+  // 应用绑定状态 / 经纬度筛选
+  rows=rows.filter(u=>{
+    const cnt=DB.wifiRecords.filter(r=>r.unit_id===u.id).length;
+    if(unitBindFilter==='bound' && cnt===0) return false;
+    if(unitBindFilter==='unbound' && cnt>0) return false;
+    const g=hasUnitCoord(u);
+    if(unitGeoFilter==='has' && !g) return false;
+    if(unitGeoFilter==='none' && g) return false;
+    return true;
+  });
+  const list=document.getElementById('unitList');
+  document.getElementById('unitsSubtitle').textContent='共 '+DB.units.length+' 个单位 · 筛出 '+rows.length+' 个';
   // Check permissions for UI
   const showEdit = hasPerm('units_view'), showDel = hasPerm('units_delete');
   document.getElementById('unitFab').style.display = hasPerm('units_view') ? '' : 'none';
   document.getElementById('unitImportBtn').style.display = hasPerm('units_import') ? '' : 'none';
   if(!rows.length){list.innerHTML='<div class="empty"><svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg><p>暂无单位数据</p></div>';return;}
-  let html='';for(const u of rows){const cnt=DB.wifiRecords.filter(r=>r.unit_id===u.id).length;html+='<div class="unit-item"><div class="unit-avatar">'+(u.unit_name[0]||'?')+'</div><div class="unit-body"><div class="unit-name">'+u.unit_name+'</div><div class="unit-code">'+u.credit_code+'</div><div class="unit-addr">'+u.address+'</div><div style="margin-top:4px"><span class="tag tag-blue">关联 '+cnt+' 个 WiFi</span></div></div><div class="unit-right">'+(showEdit?'<button class="btn btn-sm btn-outline" onclick="editUnit('+u.id+')">编辑</button>':'')+(showDel?'<button class="btn btn-sm" style="background:#fff2f0;color:var(--danger)" onclick="deleteUnit('+u.id+')">删除</button>':'')+'</div></div>';}
+  let html='';for(const u of rows){const cnt=DB.wifiRecords.filter(r=>r.unit_id===u.id).length;html+='<div class="unit-item"><div class="unit-avatar">'+(u.unit_name[0]||'?')+'</div><div class="unit-body"><div class="unit-name">'+u.unit_name+'</div><div class="unit-code">'+u.credit_code+'</div><div class="unit-addr">'+u.address+'</div><div style="margin-top:4px"><span class="tag tag-blue">关联 '+cnt+' 个 WiFi</span>'+(hasUnitCoord(u)?'<span class="tag tag-green">有经纬度</span>':'<span class="tag tag-orange">无经纬度</span>')+'</div></div><div class="unit-right">'+(showEdit?'<button class="btn btn-sm btn-outline" onclick="editUnit('+u.id+')">编辑</button>':'')+(showDel?'<button class="btn btn-sm" style="background:#fff2f0;color:var(--danger)" onclick="deleteUnit('+u.id+')">删除</button>':'')+'</div></div>';}
   list.innerHTML=html;
 }
 function showAddUnit(){if(!hasPerm('units_view')){showToast('添加单位功能已被管理员限制');return;}editingUnitId=null;document.getElementById('unitModalTitle').textContent='添加单位';['unitName','unitCode','unitAddr','unitLat','unitLng'].forEach(id=>document.getElementById(id).value='');openModal('addUnitModal');}
@@ -1435,7 +1505,100 @@ if (!isApp) {
   // 默认页面改为记录
   if (currentPage === 'scan') switchPage('records');
 }
+// App端隐藏仅网页端模块（统计模块仅供网页端使用）
+if (isApp) {
+  document.querySelectorAll('.web-only').forEach(el => el.style.display = 'none');
+}
 applyModuleVisibility();updateUserBadge();
+
+// ══════════════════════ 统计模块（仅网页端）══════════════════════
+let LAST_STATS = null;
+function statRow(label, value){
+  return '<div class="perm-item"><div class="perm-label">'+label+'</div><div style="font-size:15px;font-weight:600">'+value+'</div></div>';
+}
+function statBar(rate){
+  const c = rate>=80 ? '#52c41a' : (rate>=30 ? '#fa8c16' : '#ff4d4f');
+  return '<div style="height:8px;background:#f0f0f0;border-radius:4px;overflow:hidden;margin:8px 0 12px">'+
+         '<div style="height:100%;width:'+Math.min(rate,100)+'%;background:'+c+'"></div></div>';
+}
+function statList(rows, showGeo){
+  if(!rows || !rows.length) return '<div style="padding:10px 0;color:var(--text3);font-size:13px">暂无数据</div>';
+  const max = Math.max.apply(null, rows.map(function(r){return r.count}).concat([1]));
+  return rows.map(function(r){
+    const pct = Math.round(r.count*100/max);
+    const sub = showGeo ? '（有坐标 '+r.with_coord+' · 缺 '+(r.count-r.with_coord)+'）' : '';
+    return '<div style="margin-bottom:10px">'+
+      '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px">'+
+      '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:8px">'+r.name+'</span>'+
+      '<span style="color:var(--text2);flex-shrink:0">'+r.count+' 条'+sub+'</span></div>'+
+      '<div style="height:6px;background:#f0f0f0;border-radius:3px;overflow:hidden">'+
+      '<div style="height:100%;width:'+pct+'%;background:var(--primary)"></div></div></div>';
+  }).join('');
+}
+function statEmpty(msg){
+  ['statsOverview','statsBinding','statsGeo','statsUsers'].forEach(function(id){
+    const n=document.getElementById(id); if(n) n.innerHTML='<div style="padding:18px;text-align:center;color:var(--text3)">'+msg+'</div>';
+  });
+}
+async function renderStats(){
+  const sub = document.getElementById('statsSubtitle');
+  try{
+    const resp = await fetch('/api/stats');
+    if(resp.status === 401){ statEmpty('请先登录'); if(sub) sub.textContent='登录后可查看统计'; return; }
+    const d = await resp.json();
+    LAST_STATS = d;
+    const roleMap = {admin:'管理员（全量）','dept_admin':'部门管理员（本部门）',operator:'操作员（仅本人数据）'};
+    if(sub) sub.textContent = roleMap[d.role] || d.role;
+    document.getElementById('statsOverview').innerHTML =
+      statRow('WiFi 记录总数', d.total_wifi)+
+      statRow('单位总数', d.total_units)+
+      statRow('今日采集', d.today_wifi);
+    const b = d.binding;
+    document.getElementById('statsBinding').innerHTML =
+      '<div style="padding:6px 0 0"><span class="tag tag-blue">已绑定 '+b.bound+'</span> '+
+      '<span class="tag tag-orange">未绑定 '+b.unbound+'</span> '+
+      '<span class="tag tag-green">绑定率 '+b.rate+'%</span></div>'+ statBar(b.rate)+
+      '<div style="font-size:12px;color:var(--text3);margin-bottom:6px">各单位绑定数量（Top 20）</div>'+
+      statList(b.by_unit, false);
+    const g = d.geo;
+    document.getElementById('statsGeo').innerHTML =
+      '<div style="padding:6px 0 0"><span class="tag tag-green">有坐标 '+g.with_coord+'</span> '+
+      '<span class="tag tag-orange">缺坐标 '+g.without_coord+'</span> '+
+      '<span class="tag tag-blue">采集率 '+g.rate+'%</span></div>'+ statBar(g.rate)+
+      '<div style="font-size:12px;color:var(--text3);margin-bottom:6px">缺坐标最多的单位（优先补采）</div>'+
+      statList(g.by_unit, true);
+    document.getElementById('statsUsers').innerHTML =
+      '<div style="padding:6px 0 0;font-size:12px;color:var(--text3);margin-bottom:6px">各用户采集量（含坐标数）</div>'+
+      statList(d.users.by_user, true);
+  }catch(e){
+    statEmpty('加载失败，请重试');
+    if(sub) sub.textContent='统计加载失败';
+  }
+}
+// 全量导出统计结果
+function exportStats(){
+  if(!LAST_STATS){ showToast('暂无统计数据，请先刷新'); return; }
+  const d = LAST_STATS, rows = [];
+  rows.push(['统计维度','项目','数值']);
+  rows.push(['总览','WiFi记录总数', d.total_wifi]);
+  rows.push(['总览','单位总数', d.total_units]);
+  rows.push(['总览','今日采集', d.today_wifi]);
+  rows.push(['绑定情况','已绑定', d.binding.bound]);
+  rows.push(['绑定情况','未绑定', d.binding.unbound]);
+  rows.push(['绑定情况','绑定率(%)', d.binding.rate]);
+  (d.binding.by_unit||[]).forEach(function(r){ rows.push(['绑定-单位明细', r.name, r.count]); });
+  rows.push(['经纬度采集','有坐标', d.geo.with_coord]);
+  rows.push(['经纬度采集','缺坐标', d.geo.without_coord]);
+  rows.push(['经纬度采集','采集率(%)', d.geo.rate]);
+  (d.geo.by_unit||[]).forEach(function(r){ rows.push(['经纬度-单位明细', r.name, r.count+' 条 / 有坐标 '+r.with_coord]); });
+  (d.users.by_user||[]).forEach(function(r){ rows.push(['用户采集量', r.name, r.count+' 条 / 有坐标 '+r.with_coord]); });
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{wch:16},{wch:36},{wch:20}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '统计');
+  saveXlsxFile(wb, '采灵统计_'+new Date().toLocaleDateString('zh-CN').replace(/\//g,'-')+'.xlsx');
+  showToast('统计已导出');
+}
 
 // ══════════════════════ TOKEN 有效性检查 ══════════════════════
 // APP启动时检测token是否有效，无效则清除本地登录状态并跳转登录页

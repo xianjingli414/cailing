@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-采灵 v17.5 — Flask + WebView Bootstrap 方案（WifiBridge原生扫描版）
+采灵 v17.6 — Flask + WebView Bootstrap 方案（WifiBridge原生扫描版）
 
 核心改动：WiFi扫描通过Java原生WifiBridge（addJavascriptInterface）完成，
 不再依赖Python/jnius调用Android API（v10-v11均因此失败）。
