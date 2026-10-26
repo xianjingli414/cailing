@@ -174,7 +174,7 @@
 
 <div class="status-bar">
   <span class="time" id="clock">15:30</span>
-  <span style="font-size:11px;color:var(--text3)">v17.7</span>
+  <span style="font-size:11px;color:var(--text3)">v17.8</span>
   <button class="user-badge" id="userBadge" onclick="switchPage('mine')">
     <div class="user-avatar" id="userAvatar">客</div>
     <span id="userLabel">游客</span>
@@ -214,18 +214,18 @@
 <!-- ══════════════ RECORDS ══════════════ -->
 <div class="page" id="page-records">
   <div class="page-header"><div><p class="page-title">记录</p><p class="page-subtitle" id="recordsSubtitle">共 0 条记录</p></div></div>
-  <div class="search-wrap"><div class="search-inner"><svg class="search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input class="search-input" id="recordSearch" placeholder="搜索 SSID、BSSID 或单位名称..." oninput="renderRecords()"></div></div>
-  <div class="filter-row" style="padding-top:4px" id="recordFilterRow">
+  <div class="search-wrap"><div class="search-inner"><svg class="search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input class="search-input" id="recordSearch" placeholder="搜索 SSID、BSSID 或单位名称..." oninput="debouncedRenderRecords()"></div></div>
+  <div class="filter-row" style="padding-top:4px;align-items:center" id="recordFilterRow">
     <div class="filter-chip active" onclick="setRecordFilter('all',this)">全部</div>
     <div class="filter-chip" onclick="setRecordFilter('2.4G',this)">2.4G</div>
     <div class="filter-chip" onclick="setRecordFilter('5G',this)">5G</div>
+    <button class="btn btn-sm btn-primary" style="margin-left:auto;flex-shrink:0" onclick="exportSelectedRecords()"><svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:none;stroke:#fff;stroke-width:2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>导出所选</button>
   </div>
   <div class="export-bar" id="recordExportBar">
     <span class="export-count" id="exportCountLabel">可选择记录后导出</span>
     <button class="btn btn-sm btn-outline" onclick="downloadWifiTemplate()">下载模板</button>
     <button class="btn btn-sm btn-outline" onclick="triggerWifiImport()">导入</button>
     <button class="btn btn-sm btn-outline" onclick="toggleRecordSelectAll()">全选</button>
-    <button class="btn btn-sm btn-primary" onclick="exportSelectedRecords()"><svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:none;stroke:#fff;stroke-width:2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>导出所选</button>
   </div>
   <input type="file" id="wifiFileInput" accept=".xlsx" onchange="importWifiXlsx(event)" style="display:none">
   <div class="card card-last" id="recordList"><div class="empty"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg><p>暂无记录，去扫描后保存</p></div></div>
@@ -234,7 +234,7 @@
 <!-- ══════════════ UNITS ══════════════ -->
 <div class="page" id="page-units">
   <div class="page-header"><div><p class="page-title">单位管理</p><p class="page-subtitle" id="unitsSubtitle">共 0 个单位</p></div><div style="display:flex;gap:6px"><button class="btn btn-sm btn-outline" onclick="downloadUnitTemplate()">下载模板</button><button class="btn btn-sm btn-outline" id="unitImportBtn" onclick="triggerUnitImport()" style="display:none">导入</button></div></div>
-  <div class="search-wrap"><div class="search-inner"><svg class="search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input class="search-input" id="unitSearch" placeholder="搜索单位名称或信用代码..." oninput="renderUnits()"></div></div>
+  <div class="search-wrap"><div class="search-inner"><svg class="search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input class="search-input" id="unitSearch" placeholder="搜索单位名称或信用代码..." oninput="debouncedRenderUnits()"></div></div>
   <div class="filter-row" style="padding-top:6px" id="unitBindRow">
     <div class="filter-chip active" onclick="setUnitFilter('bind','all',this)">全部绑定</div>
     <div class="filter-chip" onclick="setUnitFilter('bind','bound',this)">已绑定</div>
@@ -474,10 +474,9 @@ const DB = {
       if (!unitResp.ok) { console.log('syncFromServer: units fetch failed (' + unitResp.status + '), skip'); return; }
       const unitData = await unitResp.json();
       const serverUnits = unitData.units || [];
-      const serverUnitNames = new Set(serverUnits.map(u => u.unit_name));
-      // 删除本地有但服务器没有的单位（说明被删除了）
+      // [修复] 不再删除本地有而服务器没有的单位：
+      // 本地可能存有尚未上传的新增单位，误删会永久丢失
       const beforeUnitLen = this.units.length;
-      this.units = this.units.filter(u => serverUnitNames.has(u.unit_name));
       // 合并服务器新增的单位
       let newUnits = 0;
       for (const u of serverUnits) {
@@ -501,10 +500,10 @@ const DB = {
       if (!wifiResp.ok) { console.log('syncFromServer: wifi fetch failed (' + wifiResp.status + '), skip'); return; }
       const wifiData = await wifiResp.json();
       const serverRecords = wifiData.records || [];
-      const serverBssids = new Set(serverRecords.map(r => r.bssid));
-      // 删除本地有但服务器没有的WiFi记录（说明被删除了）
+      // [修复] 不再删除本地有而服务器没有的WiFi记录：
+      // ① 本地可能存有尚未上传的新采集数据，直接删除会永久丢失
+      // ② 服务端 /api/wifi 按角色隔离（operator 仅能拉到自己采集的），删除会误删他人数据
       const beforeWifiLen = this.wifiRecords.length;
-      this.wifiRecords = this.wifiRecords.filter(r => serverBssids.has(r.bssid));
       // 合并服务器新增/更新的WiFi记录
       let newCnt = 0, updateCnt = 0;
       for (const r of serverRecords) {
@@ -527,12 +526,21 @@ const DB = {
           });
           newCnt++;
         } else {
-          // 已存在：同步服务器的最新字段（绑定信息、unit_name等）
+          // 已存在：同步服务器的最新字段（绑定信息、经纬度等）
+          let _changed = false;
           if (r.unit_name && r.unit_name !== existing.unit_name) {
             existing.unit_id = localUnitId;
             existing.unit_name = r.unit_name || '';
-            updateCnt++;
+            _changed = true;
           }
+          // [修复] 同步经纬度：服务端有坐标而本地缺失时补齐，否则重扫补的坐标同步不下来
+          if (r.latitude != null && r.latitude !== 0 && existing.latitude !== r.latitude) {
+            existing.latitude = r.latitude; _changed = true;
+          }
+          if (r.longitude != null && r.longitude !== 0 && existing.longitude !== r.longitude) {
+            existing.longitude = r.longitude; _changed = true;
+          }
+          if (_changed) updateCnt++;
         }
       }
       if (newCnt > 0 || updateCnt > 0 || this.wifiRecords.length !== beforeWifiLen) {
@@ -1082,7 +1090,7 @@ updateStats();
 
 // ══════════════════════ RECORDS ══════════════════════
 let recordFilter='all', selectedRecordIds=new Set();
-function setRecordFilter(f,el) { if (!hasPerm('records_view') && f !== 'all') { showToast('筛选功能已被管理员限制'); return; } recordFilter=f; document.querySelectorAll('#recordFilterRow .filter-chip').forEach(c=>c.classList.remove('active')); el.classList.add('active'); renderRecords(); }
+function setRecordFilter(f,el) { if (!hasPerm('records_view') && f !== 'all') { showToast('筛选功能已被管理员限制'); return; } recordFilter=f; _recordPage=1; document.querySelectorAll('#recordFilterRow .filter-chip').forEach(c=>c.classList.remove('active')); el.classList.add('active'); renderRecords(); }
 function renderRecords() {
   // 仅显示已绑定单位的WiFi记录
   const boundRecords = DB.wifiRecords.filter(r => r.unit_name);
@@ -1091,15 +1099,28 @@ function renderRecords() {
   let rows=boundRecords.filter(r=>{if(q&&!r.ssid.toLowerCase().includes(q)&&!r.bssid.toLowerCase().includes(q)&&!(r.unit_name&&r.unit_name.toLowerCase().includes(q))) return false; if(recordFilter==='2.4G'&&r.band!=='2.4G') return false; if(recordFilter==='5G'&&r.band!=='5G') return false; return true; });
   const list=document.getElementById('recordList');
   if(!rows.length){list.innerHTML='<div class="empty"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg><p>暂无匹配记录</p></div>';document.getElementById('exportCountLabel').textContent='可选择记录后导出';return; }
-  document.getElementById('exportCountLabel').textContent='共 '+rows.length+' 条 · 选中 '+selectedRecordIds.size;
+  _lastRecordCount=rows.length;document.getElementById('exportCountLabel').textContent='共 '+rows.length+' 条 · 选中 '+selectedRecordIds.size;
   document.getElementById('recordExportBar').style.display = hasPerm('records_export') ? '' : 'none';
   document.getElementById('recordFilterRow').style.display = hasPerm('records_view') ? '' : 'none';
-  let html=''; for(const r of rows){ const checked=selectedRecordIds.has(r.id)?' checked':'', boundTag=r.unit_name?'<span class="tag tag-green">'+r.unit_name+'</span>':'', exportTag=r.exported?'<span class="tag tag-blue">已导出</span>':'';
+  // [性能优化] 分页渲染：首屏只渲染前50条，避免数百条记录一次性插入DOM造成卡顿
+  const _PAGE=50, _p=_recordPage||1;
+  const shown = rows.length > _p*_PAGE ? rows.slice(0,_p*_PAGE) : rows;
+  let html=''; for(const r of shown){ const checked=selectedRecordIds.has(r.id)?' checked':'', boundTag=r.unit_name?'<span class="tag tag-green">'+r.unit_name+'</span>':'', exportTag=r.exported?'<span class="tag tag-blue">已导出</span>':'';
     const delBtn = hasPerm('records_delete') ? '<button class="btn btn-xs" style="background:#fff2f0;color:var(--danger)" onclick="deleteRecord('+r.id+')">删除</button>' : '';
     html+='<div class="wifi-item'+checked+'" data-wifi-id="'+r.id+'"><div class="wifi-cb" onclick="toggleRecordItem('+r.id+',this.parentElement)"><div class="wifi-cb-inner"></div></div><div class="wifi-icon"><svg viewBox="0 0 24 24"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="var(--primary)"/></svg></div><div class="wifi-body" style="cursor:pointer" onclick="openRecordDetail('+r.id+')"><div class="wifi-ssid">'+(r.ssid||'&lt;隐藏网络&gt;')+'</div><div class="wifi-meta">'+r.bssid+' · '+r.band+' · '+r.signal+' dBm'+(r.latitude&&r.longitude?' · '+r.latitude.toFixed(6)+','+r.longitude.toFixed(6):' · 未定位')+'</div><div class="wifi-tags">'+boundTag+exportTag+'</div></div><div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end"><span style="font-size:11px;color:var(--text3)">'+r.collect_time+'</span>'+delBtn+'</div></div>'; }
+  if(rows.length>shown.length){ html+='<div style="padding:12px;text-align:center"><button class="btn btn-sm btn-outline" onclick="loadMoreRecords()">显示更多（还有 '+(rows.length-shown.length)+' 条）</button></div>'; }
   list.innerHTML=html;
 }
-function toggleRecordItem(id,el){if(selectedRecordIds.has(id)){selectedRecordIds.delete(id);el.classList.remove('checked');}else{selectedRecordIds.add(id);el.classList.add('checked');}renderRecords();}
+var _recordPage=1;
+function loadMoreRecords(){_recordPage=(_recordPage||1)+1;renderRecords();}
+// [性能优化] 搜索防抖：避免每输入一个字符就全量重渲染数百条记录（417条时输入会明显卡顿）
+let _searchDebounceTimer=null, _unitSearchDebounceTimer=null;
+function debouncedRenderRecords(){_recordPage=1;clearTimeout(_searchDebounceTimer);_searchDebounceTimer=setTimeout(renderRecords,300);}
+function debouncedRenderUnits(){clearTimeout(_unitSearchDebounceTimer);_unitSearchDebounceTimer=setTimeout(renderUnits,300);}
+// 记录当前渲染条数，勾选时只更新计数文字，不重渲染整个列表
+let _lastRecordCount=0;
+function updateRecordCountLabel(){const lbl=document.getElementById('exportCountLabel');if(lbl)lbl.textContent='共 '+_lastRecordCount+' 条 · 选中 '+selectedRecordIds.size;}
+function toggleRecordItem(id,el){if(selectedRecordIds.has(id)){selectedRecordIds.delete(id);el.classList.remove('checked');}else{selectedRecordIds.add(id);el.classList.add('checked');}updateRecordCountLabel();}
 // 记录模块：点击任意一条记录预览完整信息（复用WiFi详情弹窗）
 function openRecordDetail(id){
   const r = DB.wifiRecords.find(x=>x.id===id); if (!r) return;
@@ -1204,7 +1225,7 @@ function renderMine(){
     if(isAdmin()){
       // Module coarse toggles
       document.getElementById('moduleToggleCard').style.display='';
-      const modules=[{key:'scan',label:'扫描',desc:'WiFi 信号扫描与发现'},{key:'records',label:'记录',desc:'查看、筛选和导出 WiFi 记录'},{key:'units',label:'单位管理',desc:'单位信息管理'}];
+      const modules=[{key:'scan',label:'扫描',desc:'WiFi 信号扫描与发现'},{key:'records',label:'记录',desc:'查看、筛选和导出 WiFi 记录'},{key:'units',label:'单位管理',desc:'单位信息管理'},{key:'stats',label:'统计',desc:'绑定/经纬度/用户采集统计（仅网页端）'}];
       document.getElementById('moduleToggles').innerHTML=modules.map(m=>'<div class="perm-item"><div><div class="perm-label">'+m.label+'</div><div class="perm-desc">控制普通用户能否看到该模块 Tab</div></div><button class="toggle-sw'+(DB.moduleVisibility[m.key]!==false?' on':'')+'" onclick="toggleModule(\''+m.key+'\',this)"></button></div>').join('');
       // User management
       document.getElementById('deptMgmtCard').style.display='';
