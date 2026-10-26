@@ -219,7 +219,7 @@
     <div class="filter-chip active" onclick="setRecordFilter('all',this)">全部</div>
     <div class="filter-chip" onclick="setRecordFilter('2.4G',this)">2.4G</div>
     <div class="filter-chip" onclick="setRecordFilter('5G',this)">5G</div>
-    <button class="btn btn-sm btn-primary" style="margin-left:auto;flex-shrink:0" onclick="exportSelectedRecords()"><svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:none;stroke:#fff;stroke-width:2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>导出所选</button>
+    <button class="btn btn-sm btn-primary" id="exportSelectedBtn" style="margin-left:auto;flex-shrink:0" onclick="exportSelectedRecords()"><svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:none;stroke:#fff;stroke-width:2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>导出所选</button>
   </div>
   <div class="export-bar" id="recordExportBar">
     <span class="export-count" id="exportCountLabel">可选择记录后导出</span>
@@ -613,13 +613,16 @@ if(usersChanged) saveUsers();
 let USER_PERMS = JSON.parse(localStorage.getItem('_user_perms') || '{}');
 // Default perms for new regular users
 const GRANULAR_PERMS_DEFAULT = { scan_view:true, scan_bind:true, records_view:true, records_delete:true, records_export:true, records_import:true, units_view:true, units_create:true, units_delete:true, units_import:true, users_manage:true };
+// [安全收紧] 未登录(guest/离线)时的受限权限：保留查看与采集绑定，禁用导出/删除/导入/用户管理
+// 目的：防止他人拿到设备后在不登录的情况下导出或破坏本地数据
+const GUEST_PERMS = { scan_view:true, scan_bind:true, records_view:true, records_delete:false, records_export:false, records_import:false, units_view:true, units_create:true, units_delete:false, units_import:false, users_manage:false };
 
 function saveUsers() { localStorage.setItem('_users', JSON.stringify(USERS)); }
 function savePerms() { localStorage.setItem('_user_perms', JSON.stringify(USER_PERMS)); }
 
 // Get current user's granular perms (admin = all true)
 function getPerms() {
-  if (!DB.currentUser) return {...GRANULAR_PERMS_DEFAULT}; // guest: all allowed
+  if (!DB.currentUser) return {...GUEST_PERMS}; // guest: 受限（禁止导出/删除/导入/用户管理）
   if (DB.currentUser.role === 'admin') { const all = {}; Object.keys(GRANULAR_PERMS_DEFAULT).forEach(k => all[k]=true); return all; }
   // 优先使用服务器端perms
   if (DB.currentUser.perms) return DB.currentUser.perms;
@@ -1102,6 +1105,7 @@ function renderRecords() {
   _lastRecordCount=rows.length;document.getElementById('exportCountLabel').textContent='共 '+rows.length+' 条 · 选中 '+selectedRecordIds.size;
   document.getElementById('recordExportBar').style.display = hasPerm('records_export') ? '' : 'none';
   document.getElementById('recordFilterRow').style.display = hasPerm('records_view') ? '' : 'none';
+  const _esb=document.getElementById('exportSelectedBtn'); if(_esb) _esb.style.display = hasPerm('records_export') ? '' : 'none';
   // [性能优化] 分页渲染：首屏只渲染前50条，避免数百条记录一次性插入DOM造成卡顿
   const _PAGE=50, _p=_recordPage||1;
   const shown = rows.length > _p*_PAGE ? rows.slice(0,_p*_PAGE) : rows;
