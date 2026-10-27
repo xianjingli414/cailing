@@ -335,7 +335,7 @@ async function renderWifi(){
         <option value="">全部坐标</option><option value="has" ${coord==='has'?'selected':''}>有经纬度</option><option value="none" ${coord==='none'?'selected':''}>无经纬度</option></select>
       <select class="sel" id="wfUser" onchange="wifiPage=1;renderWifi()"><option value="">全部采集人</option>${uopt}</select>
       <button class="btn" onclick="wifiPage=1;renderWifi()">查询</button>
-      ${hasP('records_import')?`<button class="btn" onclick="document.getElementById('wifiFile').click()">导入记录</button>
+      ${hasP('records_import')?`<button class="btn" onclick="triggerWifiImport()">导入记录</button>
       <button class="btn" onclick="downloadWifiTemplate()">下载模板</button>`:''}
       ${hasP('records_export')?`<button class="btn btn-p" onclick="exportWifi()">导出当前筛选</button>
       <button class="btn btn-p" onclick="exportWifiAll()">导出全部记录</button>`:''}
@@ -347,10 +347,19 @@ async function renderWifi(){
 }
 function pager(total,page,pages,tag){
   if(!pages||pages<1)return '';
+  // 渲染函数名：tag 必须与实际的 renderXxx 一致
+  // （此前传 'unit' 会拼成 renderUnit()，而实际函数是 renderUnits，导致点击无反应）
+  const fn='render'+tag[0].toUpperCase()+tag.slice(1);
   let h=`<div class="pg">共 ${total} 条 `;
-  h+=`<i onclick="${tag}Page=${Math.max(1,page-1)};render${tag[0].toUpperCase()+tag.slice(1)}()">‹</i>`;
-  for(let i=1;i<=Math.min(pages,7);i++) h+=`<i class="${i===page?'on':''}" onclick="${tag}Page=${i};render${tag[0].toUpperCase()+tag.slice(1)}()">${i}</i>`;
-  h+=`<i onclick="${tag}Page=${Math.min(pages,page+1)};render${tag[0].toUpperCase()+tag.slice(1)}()">›</i></div>`;
+  h+=`<i onclick="${tag}Page=${Math.max(1,page-1)};${fn}()">‹</i>`;
+  // 显示当前页附近的页码，并保留首尾页，页数多时也能跳转
+  let start=Math.max(1,page-3), end=Math.min(pages,start+6);
+  start=Math.max(1,end-6);
+  if(start>1){ h+=`<i onclick="${tag}Page=1;${fn}()">1</i>`; if(start>2) h+='<i>…</i>'; }
+  for(let i=start;i<=end;i++)
+    h+=`<i class="${i===page?'on':''}" onclick="${tag}Page=${i};${fn}()">${i}</i>`;
+  if(end<pages){ if(end<pages-1) h+='<i>…</i>'; h+=`<i onclick="${tag}Page=${pages};${fn}()">${pages}</i>`; }
+  h+=`<i onclick="${tag}Page=${Math.min(pages,page+1)};${fn}()">›</i></div>`;
   return h;
 }
 // 导出全部记录（一次性导出所有，不受筛选/分页影响）
@@ -385,6 +394,25 @@ async function downloadUnitTemplate(){
   const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'单位导入模板');
   await dumpXlsx(wb,h,name);
 }
+// 导入前说明（避免用户填的单位名对不上却不自知）
+function triggerWifiImport(){
+  if(!confirm(
+    '导入说明：\n'+
+    '1. 请使用「下载模板」的表头格式\n'+
+    '2. BSSID 必填；已存在的记录会跳过，不会覆盖\n'+
+    '3. 「关联单位」必须与系统中单位名称完全一致，否则该条不会绑定\n\n'+
+    '确定继续选择文件？')) return;
+  document.getElementById('wifiFile').click();
+}
+function triggerUnitImport(){
+  if(!confirm(
+    '导入说明：\n'+
+    '1. 请使用「下载模板」的表头格式\n'+
+    '2. 单位名称必填；与已有单位重名会跳过\n'+
+    '3. 行政区划代码可留空，留空默认填 萧山区(330109)/衙前镇(330109108)\n\n'+
+    '确定继续选择文件？')) return;
+  document.getElementById('unitFile').click();
+}
 // 导入 WiFi 记录
 async function importWifi(e){
   const file=e.target.files[0]; e.target.value=''; if(!file)return;
@@ -406,9 +434,14 @@ async function importWifi(e){
           latitude:c[8]?parseFloat(c[8]):null, longitude:c[9]?parseFloat(c[9]):null});
       }
       if(!recs.length){toast('未解析到有效数据');return;}
-      const r=await fetch('/api/wifi',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify(recs)}).then(x=>x.json()).catch(()=>null);
-      toast(`导入完成：成功 ${r?r.ok:0} 条${(r&&r.skip)?('，跳过重复/异常 '+r.skip+' 条'):''}`);
+      // 必须用 /api/wifi/sync：它的 INSERT 带 unit_id，能按单位名自动绑定；
+      // /api/wifi 的 INSERT 不含 unit_id，导入的单位关联会被丢弃
+      const r=await fetch('/api/wifi/sync',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({records:recs})}).then(x=>x.json()).catch(()=>null);
+      const msg=[`成功 ${r?r.ok:0} 条`];
+      if(r&&r.update) msg.push(`补全绑定 ${r.update} 条`);
+      if(r&&r.skip) msg.push(`跳过 ${r.skip} 条`);
+      toast('导入完成：'+msg.join('，'));
       renderWifi();
     }catch(err){toast('解析失败: '+err.message);}
   };
@@ -545,7 +578,7 @@ async function renderUnits(){
         <option value="unbound" ${wstat==='unbound'?'selected':''}>未绑定</option>
         <option value="none" ${wstat==='none'?'selected':''}>无 WiFi</option></select>
       <button class="btn" onclick="unitPage=1;renderUnits()">查询</button>
-      ${hasP('units_import')?`<button class="btn" onclick="document.getElementById('unitFile').click()">导入单位</button>
+      ${hasP('units_import')?`<button class="btn" onclick="triggerUnitImport()">导入单位</button>
       <button class="btn" onclick="downloadUnitTemplate()">下载模板</button>`:''}
       <button class="btn btn-p" onclick="exportUnits()">导出全部单位</button>
       <input type="file" id="unitFile" accept=".xlsx" style="display:none" onchange="importUnits(event)">
@@ -562,7 +595,7 @@ async function renderUnits(){
       <td>${hasP('units_create')?`<span class="lnk" onclick="editUnit(${u.id})">编辑</span>`:''}
           ${hasP('units_delete')?`<span class="lnk d" onclick="delUnit(${u.id},'${esc(u.unit_name)}')">删除</span>`:''}</td>
     </tr>`).join('')}</table>`:'<div class="empty">暂无单位</div>'}
-    ${d?pager(d.total||0,d.page||1,Math.ceil((d.total||0)/UNIT_SIZE),'unit'):''}
+    ${d?pager(d.total||0,d.page||1,Math.ceil((d.total||0)/UNIT_SIZE),'units'):''}
   </div>
   <div class="note">📌 本页为后台单位维护，<b>不含 WiFi 采集功能</b>——采集在手机 App 端现场完成。此处可补录单位经纬度坐标。</div>`;
 }
