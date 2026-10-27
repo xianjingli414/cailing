@@ -11,7 +11,8 @@ import os
 
 # ── 服务器配置 ─────────────────────────────────────────────
 # 生产环境地址（根据实际部署修改）
-SERVER_URL = os.environ.get("CAILING_SERVER", "http://121.4.28.216:8080")
+# 服务器地址：默认走 HTTPS（cailing.china-manwe.com）
+SERVER_URL = os.environ.get("CAILING_SERVER", "https://cailing.china-manwe.com")
 
 # 全局登录状态
 _auth_token = None
