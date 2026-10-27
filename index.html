@@ -341,7 +341,6 @@
 <!-- ════════════ BATCH BAR ════════════ -->
 <div class="batch-bar" id="batchBar">
   <div class="batch-info">已选 <span class="cnt" id="batchCount">0</span> <span class="lbl">条 WiFi</span></div>
-  <button class="btn btn-ghost btn-sm" id="batchSaveBtn" onclick="batchSave()">保存</button>
   <button class="btn btn-primary btn-sm" id="batchBindBtn" onclick="batchBind()">绑定单位</button>
 </div>
 
@@ -352,7 +351,7 @@
   <div class="modal" onclick="event.stopPropagation()"><div class="modal-handle"></div>
     <h3 class="modal-title" id="detailTitle">WiFi 详情</h3>
     <div style="background:#f8f8f8;border-radius:10px;margin-bottom:16px;overflow:hidden"><div id="detailContent"></div></div>
-    <div style="display:flex;gap:10px"><button class="btn btn-ghost" style="flex:1" onclick="closeModal('wifiDetailModal')">关闭</button><button class="btn btn-primary" style="flex:2" id="detailSaveBtn" onclick="saveCurrentWifi()">保存到记录库</button></div>
+    <div style="display:flex;gap:10px"><button class="btn btn-primary" style="flex:1" onclick="closeModal('wifiDetailModal')">关闭</button></div>
   </div>
 </div>
 
@@ -969,10 +968,11 @@ function toggleScanItem(bssid, el) { if (selectedBssids.has(bssid)) { selectedBs
 function openScanDetail(bssid) {
   const r = scanResultMap[bssid]; if (!r) return; currentWifi = r;
   document.getElementById('detailTitle').textContent = r.ssid||'<隐藏网络>';
-  const saved = DB.wifiRecords.find(x=>x.bssid===r.bssid), btn = document.getElementById('detailSaveBtn');
-  if (saved) { btn.innerHTML = saved.unit_name ? '已保存 · '+saved.unit_name : '已保存'; btn.disabled = true; }
-  else { btn.innerHTML = '<svg viewBox="0 0 24 24" style="width:16px;height:16px;fill:none;stroke:#fff;stroke-width:2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> 保存到记录库'; btn.disabled = false; }
-  document.getElementById('detailContent').innerHTML = dRow('SSID',r.ssid||'<隐藏网络>')+dRow('BSSID',r.bssid)+dRow('信号强度',r.signal+' dBm')+dRow('信道',r.channel)+dRow('频段',r.band)+dRow('加密方式',r.encrypt_type)+dRow('厂商',r.vendor)+dRowMap(r.latitude, r.longitude, r.ssid);
+  // 「保存到记录库」按钮已移除（只存本地、无法后续绑定，属无效功能），
+  // 改为在详情内容中显示记录状态，信息不丢失
+  const saved = DB.wifiRecords.find(x=>x.bssid===r.bssid);
+  const statusText = saved ? (saved.unit_name ? ('已绑定：'+saved.unit_name) : '已在记录库中，未绑定单位') : '尚未保存';
+  document.getElementById('detailContent').innerHTML = dRow('SSID',r.ssid||'<隐藏网络>')+dRow('BSSID',r.bssid)+dRow('信号强度',r.signal+' dBm')+dRow('信道',r.channel)+dRow('频段',r.band)+dRow('加密方式',r.encrypt_type)+dRow('厂商',r.vendor)+dRow('记录状态',statusText)+dRowMap(r.latitude, r.longitude, r.ssid);
   openModal('wifiDetailModal');
 }
 function dRow(l,v) { return '<div class="detail-row"><div class="detail-label">'+l+'</div><div class="detail-value">'+v+'</div></div>'; }
@@ -1027,7 +1027,6 @@ function dRowMap(lat,lng,name){
     '<div class="detail-value" style="color:var(--primary)">'+Number(lat).toFixed(6)+', '+Number(lng).toFixed(6)+
     ' <span style="font-size:12px">📍 查看地图</span></div></div>';
 }
-function saveCurrentWifi() { if (!currentWifi) return; if(DB.addWifi({...currentWifi})){showToast('已保存到记录库');updateStats();renderScanList();}else{showToast('该 WiFi 已在记录库中');} closeModal('wifiDetailModal'); }
 
 // ══════════════════════ BATCH BAR ══════════════════════
 function updateBatchBar() {
@@ -1044,7 +1043,6 @@ function updateBatchBar() {
     }
   } else { bar.classList.remove('visible'); }
 }
-function batchSave(){if(currentPage!=='scan'||selectedBssids.size===0)return;let saved=0,skip=0;[...selectedBssids].forEach(bssid=>{const r=scanResultMap[bssid];if(r){if(DB.addWifi({...r})){saved++;}else{skip++;}}});updateStats();renderScanList();showToast('已保存/更新 '+saved+' 条'+(skip>0?'（'+skip+' 条已存在且无新坐标）':''));}
 function batchBind(){if(currentPage!=='scan'||selectedBssids.size===0||!hasPerm('scan_bind'))return;[...selectedBssids].forEach(bssid=>{const r=scanResultMap[bssid];if(r&&!DB.wifiRecords.find(x=>x.bssid===bssid))DB.addWifi({...r});});updateStats();if(_bindTargetUnitId!=null){doBind(_bindTargetUnitId);return;}document.getElementById('bindTitle').textContent='绑定单位';document.getElementById('bindSubtitle').textContent='将 '+selectedBssids.size+' 条 WiFi 统一绑定到：';document.getElementById('bindUnitSearch').value='';renderBindUnitList();openModal('bindUnitModal');}
 function doBind(unitId) {
   const bssids=[...selectedBssids];
@@ -1181,9 +1179,6 @@ function openRecordDetail(id){
   const r = DB.wifiRecords.find(x=>x.id===id); if (!r) return;
   currentWifi = r;
   document.getElementById('detailTitle').textContent = r.ssid||'<隐藏网络>';
-  const btn = document.getElementById('detailSaveBtn');
-  btn.innerHTML = r.unit_name ? '已保存 · '+r.unit_name : '已保存';
-  btn.disabled = true;   // 已在记录库中，无需再保存
   document.getElementById('detailContent').innerHTML =
     dRow('SSID',r.ssid||'<隐藏网络>')+dRow('BSSID',r.bssid)+dRow('信号强度',r.signal+' dBm')+
     dRow('信道',r.channel)+dRow('频段',r.band)+dRow('加密方式',r.encrypt_type)+dRow('厂商',r.vendor)+
