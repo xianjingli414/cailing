@@ -173,7 +173,7 @@
 
 <div class="status-bar">
   <span class="time" id="clock">15:30</span>
-  <span style="font-size:11px;color:var(--text3)">v18.0</span>
+  <span style="font-size:11px;color:var(--text3)">v18.2</span>
   <button class="user-badge" id="userBadge" onclick="switchPage('mine')">
     <div class="user-avatar" id="userAvatar">客</div>
     <span id="userLabel">游客</span>
@@ -485,14 +485,34 @@ const DB = {
         const _eu = this.units.find(x => x.unit_name === u.unit_name);
         if (!_eu) {
           this.units.unshift({
-            id: this._nextUnitId++, unit_name: u.unit_name,
+            id: this._nextUnitId++,
+            server_id: u.id,   // 服务器主键：回写接口必须用这个，不能用本地自增 id
+            unit_name: u.unit_name,
             credit_code: u.credit_code || '', address: u.address || '',
             latitude: (u.latitude != null ? u.latitude : null), longitude: (u.longitude != null ? u.longitude : null),
             create_time: u.create_time || new Date().toLocaleString('zh-CN'),
+            district_code: u.district_code || '', district_name: u.district_name || '',
+            town_code: u.town_code || '', town_name: u.town_name || '',
+            village_code: u.village_code || '', village_name: u.village_name || '',
+            wifi_status: u.wifi_status || 'unbound',
             synced: true
           });
           newUnits++;
         } else {
+          // 已存在：同步服务器的最新字段（坐标、行政区划、绑定状态）
+          // 目的：库里已有的数据（如衙前镇、导入的坐标）要能在 App 端显示，避免重复采集
+          _eu.server_id = u.id;
+          _eu.credit_code = u.credit_code || _eu.credit_code;
+          _eu.address = u.address || _eu.address;
+          if (u.latitude != null) _eu.latitude = u.latitude;
+          if (u.longitude != null) _eu.longitude = u.longitude;
+          _eu.district_code = u.district_code || '';
+          _eu.district_name = u.district_name || '';
+          _eu.town_code = u.town_code || '';
+          _eu.town_name = u.town_name || '';
+          _eu.village_code = u.village_code || '';
+          _eu.village_name = u.village_name || '';
+          _eu.wifi_status = u.wifi_status || 'unbound';
           _eu.synced = true;
         }
       }
@@ -1294,7 +1314,9 @@ function toggleUnitNoWifi(checked){
   if(!u)return;
   u.wifi_status=checked?'none':'unbound';
   DB.saveUnits();
-  fetch('/api/units/'+u.id,{method:'PUT',headers:{'Content-Type':'application/json'},
+  // 注意：不能用本地自增 id 调服务器接口（本地 id 与服务器主键不是一回事，会改错单位），
+  // 统一走按单位名称的 PUT 接口（与 submitUnit 一致）
+  fetch('/api/units/name/'+encodeURIComponent(u.unit_name),{method:'PUT',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({unit_name:u.unit_name,wifi_status:u.wifi_status})}).catch(()=>{});
   showToast(checked?'已标记为「无 WiFi」':'已取消「无 WiFi」标记');
   updateStats(); renderUnitDetail();
