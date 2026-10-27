@@ -408,8 +408,10 @@ function triggerUnitImport(){
   if(!confirm(
     '导入说明：\n'+
     '1. 请使用「下载模板」的表头格式\n'+
-    '2. 单位名称必填；与已有单位重名会跳过\n'+
-    '3. 行政区划代码可留空，留空默认填 萧山区(330109)/衙前镇(330109108)\n\n'+
+    '2. 【统一社会信用代码】为唯一关键字段，单位名称不作为判重依据\n'+
+    '3. 代码已存在 → 先列出重复明细，由你选择「覆盖替换」或「保留库中原有」\n'+
+    '4. 代码为空 → 无法判重，将被跳过并列出\n'+
+    '5. 行政区划代码可留空，留空默认填 萧山区(330109)/衙前镇(330109108)\n\n'+
     '确定继续选择文件？')) return;
   document.getElementById('unitFile').click();
 }
@@ -448,6 +450,7 @@ async function importWifi(e){
   reader.readAsArrayBuffer(file);
 }
 // 导入单位
+let _pendingUnits=null;   // 待确认的单位导入数据
 async function importUnits(e){
   const file=e.target.files[0]; e.target.value=''; if(!file)return;
   const reader=new FileReader();
@@ -456,12 +459,13 @@ async function importUnits(e){
       const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});
       const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1});
       if(rows.length<2){toast('文件无数据');return;}
-      // 批量提交（一次请求）
       const list=[];
       for(let i=1;i<rows.length;i++){
         const c=rows[i]; if(!c||c.length<1)continue;
-        const name=String(c[0]||'').trim(); if(!name)continue;
-        list.push({unit_name:name, credit_code:String(c[1]||'').trim(), address:String(c[2]||'').trim(),
+        const name=String(c[0]||'').trim();
+        const code=String(c[1]||'').trim();
+        if(!name&&!code)continue;
+        list.push({unit_name:name, credit_code:code, address:String(c[2]||'').trim(),
           latitude:c[3]?parseFloat(c[3]):null, longitude:c[4]?parseFloat(c[4]):null,
           district_code:String(c[5]||'').trim()||'330109', district_name:String(c[6]||'').trim()||'萧山区',
           town_code:String(c[7]||'').trim()||'330109108', town_name:String(c[8]||'').trim()||'衙前镇',
@@ -469,13 +473,67 @@ async function importUnits(e){
           wifi_status:'unbound'});
       }
       if(!list.length){toast('未解析到有效数据');return;}
-      const r=await fetch('/api/units/batch',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({units:list})}).then(x=>x.json()).catch(()=>null);
-      toast(`导入完成：成功 ${r?r.ok:0} 家${(r&&r.skip)?('，跳过重复/异常 '+r.skip+' 家'):''}`);
-      renderUnits();
+      toast('正在预检…');
+      // 阶段1：预检（不写库），按统一社会信用代码判重
+      const p=await fetch('/api/units/batch',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({units:list,confirm:false})}).then(x=>x.json()).catch(()=>null);
+      if(!p){toast('预检失败');return;}
+      _pendingUnits=list;
+      showUnitImportConfirm(p);
     }catch(err){toast('解析失败: '+err.message);}
   };
   reader.readAsArrayBuffer(file);
+}
+// 导入预检结果确认弹窗
+function showUnitImportConfirm(p){
+  const dup=p.dup||[], inDup=p.internal_dup||[], inv=p.invalid||[];
+  const MAX=30;
+  const rowHtml=(arr,extra)=>arr.slice(0,MAX).map(d=>
+    '<tr><td>'+(d.row)+'</td><td>'+esc(d.credit_code||'')+'</td><td>'+esc(d.unit_name||'')+'</td>'+extra(d)+'</tr>').join('');
+  const moreHtml=(arr)=>arr.length>MAX?'<div class="note">…另有 '+(arr.length-MAX)+' 条未列出</div>':'';
+  document.getElementById('mbox').innerHTML=
+    '<div class="mttl">导入预检结果（以统一社会信用代码判重）</div>'+
+    '<div class="note" style="margin-bottom:8px">'+
+      '新增 <b style="color:var(--ok,#2a7)">'+(p.new||0)+'</b> 家 · '+
+      '库中已存在 <b style="color:'+(dup.length?'var(--warn,#e80)':'inherit')+'">'+dup.length+'</b> 条 · '+
+      '文件内重复 '+inDup.length+' 条 · '+
+      '缺少信用代码 <b style="color:'+(inv.length?'#d33':'inherit')+'">'+inv.length+'</b> 条'+
+    '</div>'+
+    (dup.length?('<div class="pt" style="margin-top:6px">库中已存在该信用代码（可覆盖或保留原有）</div>'+
+      '<div style="max-height:190px;overflow:auto;border:1px solid var(--bd,#e3e6ec);border-radius:6px">'+
+      '<table style="margin:0"><tr><th>行号</th><th>统一社会信用代码</th><th>导入名称</th><th>库中现有名称</th></tr>'+
+      rowHtml(dup,d=>'<td>'+esc(d.existing_name||'')+'</td>')+'</table></div>'+moreHtml(dup)):'')+
+    (inDup.length?('<div class="pt" style="margin-top:8px">本次文件内重复（以最后一次为准）</div>'+
+      '<div style="max-height:120px;overflow:auto;border:1px solid var(--bd,#e3e6ec);border-radius:6px">'+
+      '<table style="margin:0"><tr><th>行号</th><th>统一社会信用代码</th><th>单位名称</th><th>说明</th></tr>'+
+      rowHtml(inDup,d=>'<td>与第'+d.first_row+'行重复</td>')+'</table></div>'+moreHtml(inDup)):'')+
+    (inv.length?('<div class="pt" style="margin-top:8px;color:#d33">缺少统一社会信用代码（无法判重，将跳过）</div>'+
+      '<div style="max-height:120px;overflow:auto;border:1px solid #f0d5d5;border-radius:6px">'+
+      '<table style="margin:0"><tr><th>行号</th><th>单位名称</th><th>原因</th></tr>'+
+      inv.slice(0,MAX).map(d=>'<tr><td>'+d.row+'</td><td>'+esc(d.unit_name||'')+'</td><td>'+esc(d.reason||'')+'</td></tr>').join('')+
+      '</table></div>'+(inv.length>MAX?'<div class="note">…另有 '+(inv.length-MAX)+' 条未列出</div>':'')):'')+
+    '<div class="note" style="margin-top:8px">'+
+      '覆盖=用导入数据替换库中同信用代码的记录（导入行未填经纬度时保留原有坐标）；'+
+      '不覆盖=跳过这些重复项，库中原有记录不变。</div>'+
+    '<div class="mfoot">'+
+      '<button class="btn" onclick="closeM()">取消</button>'+
+      (dup.length?'<button class="btn" onclick="doUnitImport(false)">保留原有（仅新增 '+(p.new||0)+'）</button>'+
+        '<button class="btn btn-p" onclick="doUnitImport(true)">覆盖重复（'+(p.new||0)+' 新增 / '+dup.length+' 覆盖）</button>'
+        :'<button class="btn btn-p" onclick="doUnitImport(false)">确认导入 '+(p.new||0)+' 家</button>')+
+    '</div>';
+  document.getElementById('mask').classList.add('on');
+}
+async function doUnitImport(overwrite){
+  if(!_pendingUnits){closeM();return;}
+  const list=_pendingUnits; _pendingUnits=null;
+  toast('正在导入…');
+  const r=await fetch('/api/units/batch',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({units:list,confirm:true,overwrite:!!overwrite})})
+    .then(x=>x.json()).catch(()=>null);
+  closeM();
+  if(!r||!r.ok){toast(r?(r.error||'导入失败'):'导入失败');return;}
+  toast(`导入完成：新增 ${r.added} 家，覆盖更新 ${r.updated} 家，跳过 ${r.skipped} 条`);
+  renderUnits();
 }
 // 导出全部单位
 async function exportUnits(){
