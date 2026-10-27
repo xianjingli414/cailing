@@ -173,7 +173,7 @@
 
 <div class="status-bar">
   <span class="time" id="clock">15:30</span>
-  <span style="font-size:11px;color:var(--text3)">v18.1</span>
+  <span style="font-size:11px;color:var(--text3)">v18.2</span>
   <button class="user-badge" id="userBadge" onclick="switchPage('mine')">
     <div class="user-avatar" id="userAvatar">客</div>
     <span id="userLabel">游客</span>
@@ -341,7 +341,6 @@
 <!-- ════════════ BATCH BAR ════════════ -->
 <div class="batch-bar" id="batchBar">
   <div class="batch-info">已选 <span class="cnt" id="batchCount">0</span> <span class="lbl">条 WiFi</span></div>
-  <button class="btn btn-ghost btn-sm" id="batchSaveBtn" onclick="batchSave()">保存</button>
   <button class="btn btn-primary btn-sm" id="batchBindBtn" onclick="batchBind()">绑定单位</button>
 </div>
 
@@ -352,7 +351,7 @@
   <div class="modal" onclick="event.stopPropagation()"><div class="modal-handle"></div>
     <h3 class="modal-title" id="detailTitle">WiFi 详情</h3>
     <div style="background:#f8f8f8;border-radius:10px;margin-bottom:16px;overflow:hidden"><div id="detailContent"></div></div>
-    <div style="display:flex;gap:10px"><button class="btn btn-ghost" style="flex:1" onclick="closeModal('wifiDetailModal')">关闭</button><button class="btn btn-primary" style="flex:2" id="detailSaveBtn" onclick="saveCurrentWifi()">保存到记录库</button></div>
+    <div style="display:flex;gap:10px"><button class="btn btn-primary" style="flex:1" onclick="closeModal('wifiDetailModal')">关闭</button></div>
   </div>
 </div>
 
@@ -485,14 +484,34 @@ const DB = {
         const _eu = this.units.find(x => x.unit_name === u.unit_name);
         if (!_eu) {
           this.units.unshift({
-            id: this._nextUnitId++, unit_name: u.unit_name,
+            id: this._nextUnitId++,
+            server_id: u.id,   // 服务器主键：回写接口必须用这个，不能用本地自增 id
+            unit_name: u.unit_name,
             credit_code: u.credit_code || '', address: u.address || '',
             latitude: (u.latitude != null ? u.latitude : null), longitude: (u.longitude != null ? u.longitude : null),
             create_time: u.create_time || new Date().toLocaleString('zh-CN'),
+            district_code: u.district_code || '', district_name: u.district_name || '',
+            town_code: u.town_code || '', town_name: u.town_name || '',
+            village_code: u.village_code || '', village_name: u.village_name || '',
+            wifi_status: u.wifi_status || 'unbound',
             synced: true
           });
           newUnits++;
         } else {
+          // 已存在：同步服务器的最新字段（坐标、行政区划、绑定状态）
+          // 目的：库里已有的数据（如衙前镇、导入的坐标）要能在 App 端显示，避免重复采集
+          _eu.server_id = u.id;
+          _eu.credit_code = u.credit_code || _eu.credit_code;
+          _eu.address = u.address || _eu.address;
+          if (u.latitude != null) _eu.latitude = u.latitude;
+          if (u.longitude != null) _eu.longitude = u.longitude;
+          _eu.district_code = u.district_code || '';
+          _eu.district_name = u.district_name || '';
+          _eu.town_code = u.town_code || '';
+          _eu.town_name = u.town_name || '';
+          _eu.village_code = u.village_code || '';
+          _eu.village_name = u.village_name || '';
+          _eu.wifi_status = u.wifi_status || 'unbound';
           _eu.synced = true;
         }
       }
@@ -552,6 +571,15 @@ const DB = {
           if (r.longitude != null && r.longitude !== 0 && existing.longitude !== r.longitude) {
             existing.longitude = r.longitude; _changed = true;
           }
+          // 同步其余采集字段：重扫补坐标后，采集时间/信号/厂商等也会变，
+          // 不同步的话 App 上会一直显示陈旧值（例如"我刚扫过，时间却没变"）
+          if (r.ssid && r.ssid !== existing.ssid) { existing.ssid = r.ssid; _changed = true; }
+          if (r.signal != null && r.signal !== existing.signal) { existing.signal = r.signal; _changed = true; }
+          if (r.channel != null && r.channel !== existing.channel) { existing.channel = r.channel; _changed = true; }
+          if (r.encrypt_type && r.encrypt_type !== existing.encrypt_type) { existing.encrypt_type = r.encrypt_type; _changed = true; }
+          if (r.band && r.band !== existing.band) { existing.band = r.band; _changed = true; }
+          if (r.vendor && r.vendor !== existing.vendor) { existing.vendor = r.vendor; _changed = true; }
+          if (r.collect_time && r.collect_time !== existing.collect_time) { existing.collect_time = r.collect_time; _changed = true; }
           if (_changed) updateCnt++;
         }
       }
@@ -940,10 +968,11 @@ function toggleScanItem(bssid, el) { if (selectedBssids.has(bssid)) { selectedBs
 function openScanDetail(bssid) {
   const r = scanResultMap[bssid]; if (!r) return; currentWifi = r;
   document.getElementById('detailTitle').textContent = r.ssid||'<隐藏网络>';
-  const saved = DB.wifiRecords.find(x=>x.bssid===r.bssid), btn = document.getElementById('detailSaveBtn');
-  if (saved) { btn.innerHTML = saved.unit_name ? '已保存 · '+saved.unit_name : '已保存'; btn.disabled = true; }
-  else { btn.innerHTML = '<svg viewBox="0 0 24 24" style="width:16px;height:16px;fill:none;stroke:#fff;stroke-width:2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> 保存到记录库'; btn.disabled = false; }
-  document.getElementById('detailContent').innerHTML = dRow('SSID',r.ssid||'<隐藏网络>')+dRow('BSSID',r.bssid)+dRow('信号强度',r.signal+' dBm')+dRow('信道',r.channel)+dRow('频段',r.band)+dRow('加密方式',r.encrypt_type)+dRow('厂商',r.vendor)+dRowMap(r.latitude, r.longitude, r.ssid);
+  // 「保存到记录库」按钮已移除（只存本地、无法后续绑定，属无效功能），
+  // 改为在详情内容中显示记录状态，信息不丢失
+  const saved = DB.wifiRecords.find(x=>x.bssid===r.bssid);
+  const statusText = saved ? (saved.unit_name ? ('已绑定：'+saved.unit_name) : '已在记录库中，未绑定单位') : '尚未保存';
+  document.getElementById('detailContent').innerHTML = dRow('SSID',r.ssid||'<隐藏网络>')+dRow('BSSID',r.bssid)+dRow('信号强度',r.signal+' dBm')+dRow('信道',r.channel)+dRow('频段',r.band)+dRow('加密方式',r.encrypt_type)+dRow('厂商',r.vendor)+dRow('记录状态',statusText)+dRowMap(r.latitude, r.longitude, r.ssid);
   openModal('wifiDetailModal');
 }
 function dRow(l,v) { return '<div class="detail-row"><div class="detail-label">'+l+'</div><div class="detail-value">'+v+'</div></div>'; }
@@ -998,7 +1027,6 @@ function dRowMap(lat,lng,name){
     '<div class="detail-value" style="color:var(--primary)">'+Number(lat).toFixed(6)+', '+Number(lng).toFixed(6)+
     ' <span style="font-size:12px">📍 查看地图</span></div></div>';
 }
-function saveCurrentWifi() { if (!currentWifi) return; if(DB.addWifi({...currentWifi})){showToast('已保存到记录库');updateStats();renderScanList();}else{showToast('该 WiFi 已在记录库中');} closeModal('wifiDetailModal'); }
 
 // ══════════════════════ BATCH BAR ══════════════════════
 function updateBatchBar() {
@@ -1015,7 +1043,6 @@ function updateBatchBar() {
     }
   } else { bar.classList.remove('visible'); }
 }
-function batchSave(){if(currentPage!=='scan'||selectedBssids.size===0)return;let saved=0,skip=0;[...selectedBssids].forEach(bssid=>{const r=scanResultMap[bssid];if(r){if(DB.addWifi({...r})){saved++;}else{skip++;}}});updateStats();renderScanList();showToast('已保存/更新 '+saved+' 条'+(skip>0?'（'+skip+' 条已存在且无新坐标）':''));}
 function batchBind(){if(currentPage!=='scan'||selectedBssids.size===0||!hasPerm('scan_bind'))return;[...selectedBssids].forEach(bssid=>{const r=scanResultMap[bssid];if(r&&!DB.wifiRecords.find(x=>x.bssid===bssid))DB.addWifi({...r});});updateStats();if(_bindTargetUnitId!=null){doBind(_bindTargetUnitId);return;}document.getElementById('bindTitle').textContent='绑定单位';document.getElementById('bindSubtitle').textContent='将 '+selectedBssids.size+' 条 WiFi 统一绑定到：';document.getElementById('bindUnitSearch').value='';renderBindUnitList();openModal('bindUnitModal');}
 function doBind(unitId) {
   const bssids=[...selectedBssids];
@@ -1152,9 +1179,6 @@ function openRecordDetail(id){
   const r = DB.wifiRecords.find(x=>x.id===id); if (!r) return;
   currentWifi = r;
   document.getElementById('detailTitle').textContent = r.ssid||'<隐藏网络>';
-  const btn = document.getElementById('detailSaveBtn');
-  btn.innerHTML = r.unit_name ? '已保存 · '+r.unit_name : '已保存';
-  btn.disabled = true;   // 已在记录库中，无需再保存
   document.getElementById('detailContent').innerHTML =
     dRow('SSID',r.ssid||'<隐藏网络>')+dRow('BSSID',r.bssid)+dRow('信号强度',r.signal+' dBm')+
     dRow('信道',r.channel)+dRow('频段',r.band)+dRow('加密方式',r.encrypt_type)+dRow('厂商',r.vendor)+
@@ -1294,7 +1318,9 @@ function toggleUnitNoWifi(checked){
   if(!u)return;
   u.wifi_status=checked?'none':'unbound';
   DB.saveUnits();
-  fetch('/api/units/'+u.id,{method:'PUT',headers:{'Content-Type':'application/json'},
+  // 注意：不能用本地自增 id 调服务器接口（本地 id 与服务器主键不是一回事，会改错单位），
+  // 统一走按单位名称的 PUT 接口（与 submitUnit 一致）
+  fetch('/api/units/name/'+encodeURIComponent(u.unit_name),{method:'PUT',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({unit_name:u.unit_name,wifi_status:u.wifi_status})}).catch(()=>{});
   showToast(checked?'已标记为「无 WiFi」':'已取消「无 WiFi」标记');
   updateStats(); renderUnitDetail();
