@@ -342,24 +342,29 @@ async function renderWifi(){
       <input type="file" id="wifiFile" accept=".xlsx" style="display:none" onchange="importWifi(event)">
     </div>
     ${d?renderWifiTable(d.records||[],true):'<div class="empty">加载失败</div>'}
-    ${d?pager(d.total||0,d.page||1,Math.ceil((d.total||0)/WIFI_SIZE),'wifi'):''}
+    ${d?pager(d.total||0,d.page||1,Math.ceil((d.total||0)/WIFI_SIZE),'renderWifi','wifiPage'):''}
   </div>`;
 }
-function pager(total,page,pages,tag){
+// 分页控件
+// fn: 渲染函数名（如 'renderUnits'）；v: 页码变量名（如 'unitPage'）
+// 两者显式传入、不做字符串推导——此前由 tag 拼接曾导致 renderUnit()/unitsPage 对不上而点击无效
+function pager(total,page,pages,fn,v){
   if(!pages||pages<1)return '';
-  // 渲染函数名：tag 必须与实际的 renderXxx 一致
-  // （此前传 'unit' 会拼成 renderUnit()，而实际函数是 renderUnits，导致点击无反应）
-  const fn='render'+tag[0].toUpperCase()+tag.slice(1);
-  let h=`<div class="pg">共 ${total} 条 `;
-  h+=`<i onclick="${tag}Page=${Math.max(1,page-1)};${fn}()">‹</i>`;
-  // 显示当前页附近的页码，并保留首尾页，页数多时也能跳转
+  if(typeof window[fn]!=='function'){
+    console.error('[pager] 渲染函数不存在:',fn);
+    return `<div class="pg" style="color:#d33">分页异常：${fn} 未定义</div>`;
+  }
+  const jump=n=>`${v}=${n};${fn}()`;
+  let h=`<div class="pg"><span>共 ${total} 条 / ${pages} 页</span>`;
+  h+=`<i onclick="${jump(Math.max(1,page-1))}">‹</i>`;
+  // 显示当前页附近页码，并保留首尾页，页数多时也能跳转
   let start=Math.max(1,page-3), end=Math.min(pages,start+6);
   start=Math.max(1,end-6);
-  if(start>1){ h+=`<i onclick="${tag}Page=1;${fn}()">1</i>`; if(start>2) h+='<i>…</i>'; }
+  if(start>1){ h+=`<i onclick="${jump(1)}">1</i>`; if(start>2) h+='<i>…</i>'; }
   for(let i=start;i<=end;i++)
-    h+=`<i class="${i===page?'on':''}" onclick="${tag}Page=${i};${fn}()">${i}</i>`;
-  if(end<pages){ if(end<pages-1) h+='<i>…</i>'; h+=`<i onclick="${tag}Page=${pages};${fn}()">${pages}</i>`; }
-  h+=`<i onclick="${tag}Page=${Math.min(pages,page+1)};${fn}()">›</i></div>`;
+    h+=`<i class="${i===page?'on':''}" onclick="${jump(i)}">${i}</i>`;
+  if(end<pages){ if(end<pages-1) h+='<i>…</i>'; h+=`<i onclick="${jump(pages)}">${pages}</i>`; }
+  h+=`<i onclick="${jump(Math.min(pages,page+1))}">›</i></div>`;
   return h;
 }
 // 导出全部记录（一次性导出所有，不受筛选/分页影响）
@@ -653,7 +658,7 @@ async function renderUnits(){
       <td>${hasP('units_create')?`<span class="lnk" onclick="editUnit(${u.id})">编辑</span>`:''}
           ${hasP('units_delete')?`<span class="lnk d" onclick="delUnit(${u.id},'${esc(u.unit_name)}')">删除</span>`:''}</td>
     </tr>`).join('')}</table>`:'<div class="empty">暂无单位</div>'}
-    ${d?pager(d.total||0,d.page||1,Math.ceil((d.total||0)/UNIT_SIZE),'units'):''}
+    ${d?pager(d.total||0,d.page||1,Math.ceil((d.total||0)/UNIT_SIZE),'renderUnits','unitPage'):''}
   </div>
   <div class="note">📌 本页为后台单位维护，<b>不含 WiFi 采集功能</b>——采集在手机 App 端现场完成。此处可补录单位经纬度坐标。</div>`;
 }
