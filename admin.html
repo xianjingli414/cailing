@@ -787,30 +787,38 @@ async function editUser(username){
   await loadDepts();
   const isAdmin=(ME.role==='admin');
   const deptOpts=_depts.map(d=>`<option value="${d.id}" ${u.dept_id==d.id?'selected':''}>${esc(d.dept_name)}</option>`).join('');
-  const roleOpts=isAdmin
-    ? `<option value="operator" ${u.role==='operator'?'selected':''}>操作员</option>
-       <option value="dept_admin" ${u.role==='dept_admin'?'selected':''}>部门管理员</option>
-       <option value="admin" ${u.role==='admin'?'selected':''}>超级管理员</option>`
-    : `<option value="operator">操作员</option>`;
+  const roleLabelMap={admin:'超级管理员','dept_admin':'部门管理员',operator:'操作员'};
+  // 角色：仅超级管理员可改。
+  // 部门管理员改为「只读显示真实角色」——此前非管理员时下拉只有"操作员"一项，
+  // 既回显错误，保存时还会把该用户（含部门管理员自己）降级为操作员。
+  const roleField=isAdmin
+    ? `<div class="frow"><label>角色</label><select id="euRole">
+         <option value="operator" ${u.role==='operator'?'selected':''}>操作员</option>
+         <option value="dept_admin" ${u.role==='dept_admin'?'selected':''}>部门管理员</option>
+         <option value="admin" ${u.role==='admin'?'selected':''}>超级管理员</option>
+       </select></div>`
+    : `<div class="frow"><label>角色</label>
+         <input value="${esc(roleLabelMap[u.role]||u.role||'')}" readonly style="background:#f5f5f5;color:#888"></div>`;
   const deptSel=isAdmin?deptOpts:`<option value="${ME.dept_id}">${esc(ME.dept_name)}</option>`;
   document.getElementById('mbox').innerHTML=`
     <div class="mttl">${isNew?'新增用户':'修改用户'}</div>
     <div class="frow"><label>账号</label><input id="euName" value="${esc(u.username||'')}" ${isNew?'':'readonly style="background:#f5f5f5;color:#888"'} placeholder="登录账号"></div>
     <div class="frow"><label>姓名</label><input id="euDisp" value="${esc(u.display_name||'')}" placeholder="显示名称"></div>
-    <div class="frow"><label>角色</label><select id="euRole">${roleOpts}</select></div>
+    ${roleField}
     <div class="frow"><label>所属部门</label><select id="euDept">${deptSel}</select></div>
     <div class="frow"><label>${isNew?'初始密码':'重设密码'}</label><input id="euPwd" type="password" placeholder="${isNew?'至少4位':'留空则不修改密码'}" autocomplete="new-password"></div>
     <div class="note">${isNew?'创建后可在「修改」中重设密码。':'修改即时生效。密码留空则保持不变。'}
-    ${isAdmin?'':'<br>部门管理员只能设为<b>操作员</b>，且归属本部门。'}</div>
+    ${isAdmin?'':'<br>部门管理员可修改姓名与密码；<b>角色仅超级管理员可调整</b>，归属本部门。'}</div>
     <div class="mfoot"><button class="btn" onclick="closeM()">取消</button>
     <button class="btn btn-p" onclick="saveUser(${isNew?'null':("'"+esc(username)+"'")})">保存</button></div>`;
   document.getElementById('mask').classList.add('on');
 }
 async function saveUser(username){
   const isNew=!username;
+  const isAdmin=(ME.role==='admin');
   const name=document.getElementById('euName').value.trim();
   const disp=document.getElementById('euDisp').value.trim();
-  const role=document.getElementById('euRole').value;
+  const role=isAdmin?document.getElementById('euRole').value:null;
   const dept=document.getElementById('euDept').value;
   const pwd=(document.getElementById('euPwd').value||'').trim();
   if(!name){toast('请输入账号');return;}
@@ -823,9 +831,12 @@ async function saveUser(username){
       body:JSON.stringify({username:name,display_name:disp,password:pwd,role:role,dept_id:deptId})})
       .then(x=>x.json()).catch(()=>null);
   }else{
+    // 非超级管理员不提交 role，避免把部门管理员误降级为操作员
+    const payload={display_name:disp,dept_id:deptId};
+    if(isAdmin) payload.role=role;
     r=await fetch('/api/users/'+encodeURIComponent(username),{method:'PUT',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({display_name:disp,role:role,dept_id:deptId})})
+      body:JSON.stringify(payload)})
       .then(x=>x.json()).catch(()=>null);
   }
   if(!(r&&r.success)){toast(r?(r.error||'保存失败'):'保存失败');return;}
