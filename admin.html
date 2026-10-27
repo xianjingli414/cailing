@@ -164,6 +164,35 @@ const PERM_LABEL={scan_view:['扫描查看','查看WiFi扫描结果'],scan_bind:
  users_manage:['用户管理','管理用户、角色与权限']};
 
 function toast(m){const t=document.getElementById('toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',2200);}
+
+/* ═══ 坐标转换 WGS84 → GCJ-02（与App端同一算法，供高德地图使用）═══ */
+const _MPI=3.1415926535897932384626,_MA=6378245.0,_MEE=0.00669342162296594323;
+function _outOfChina(lat,lng){return (lng<72.004||lng>137.8347||lat<0.8293||lat>55.8271);}
+function _tLat(x,y){let r=-100.0+2.0*x+3.0*y+0.2*y*y+0.1*x*y+0.2*Math.sqrt(Math.abs(x));
+  r+=(20.0*Math.sin(6.0*x*_MPI)+20.0*Math.sin(2.0*x*_MPI))*2.0/3.0;
+  r+=(20.0*Math.sin(y*_MPI)+40.0*Math.sin(y/3.0*_MPI))*2.0/3.0;
+  r+=(160.0*Math.sin(y/12.0*_MPI)+320*Math.sin(y*_MPI/30.0))*2.0/3.0; return r;}
+function _tLng(x,y){let r=300.0+x+2.0*y+0.1*x*x+0.1*x*y+0.1*Math.sqrt(Math.abs(x));
+  r+=(20.0*Math.sin(6.0*x*_MPI)+20.0*Math.sin(2.0*x*_MPI))*2.0/3.0;
+  r+=(20.0*Math.sin(x*_MPI)+40.0*Math.sin(x/3.0*_MPI))*2.0/3.0;
+  r+=(150.0*Math.sin(x/12.0*_MPI)+300.0*Math.sin(x/30.0*_MPI))*2.0/3.0; return r;}
+function wgs84ToGcj02(lat,lng){
+  if(_outOfChina(lat,lng))return [lat,lng];
+  let dLat=_tLat(lng-105.0,lat-35.0),dLng=_tLng(lng-105.0,lat-35.0);
+  const radLat=lat/180.0*_MPI; let magic=Math.sin(radLat); magic=1-_MEE*magic*magic;
+  const sqrtMagic=Math.sqrt(magic);
+  dLat=(dLat*180.0)/((_MA*(1-_MEE))/(magic*sqrtMagic)*_MPI);
+  dLng=(dLng*180.0)/(_MA/sqrtMagic*Math.cos(radLat)*_MPI);
+  return [lat+dLat, lng+dLng];
+}
+/* 跳转高德查看该点（URI方式，无需key） */
+function openAmap(lat,lng,name){
+  if(lat==null||lng==null||lat===0||lng===0){toast('该记录无经纬度');return;}
+  const g=wgs84ToGcj02(Number(lat),Number(lng));
+  const url='https://uri.amap.com/marker?position='+g[1].toFixed(6)+','+g[0].toFixed(6)+
+    '&name='+encodeURIComponent(name||'位置')+'&coordinate=gaode&callnative=1';
+  window.open(url,'_blank');
+}
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function closeM(){document.getElementById('mask').classList.remove('on');}
 
@@ -271,8 +300,8 @@ function renderWifiTable(rows,showOps){
   ${rows.map(r=>`<tr>
     <td>${esc(r.ssid||'<隐藏>')}</td><td>${esc(r.bssid)}</td><td>${r.signal||0}</td><td>${r.channel||0}</td><td>${esc(r.band)}</td>
     <td>${r.unit_name?`<span class="tg b">${esc(r.unit_name)}</span>`:'<span class="tg o">未绑定</span>'}</td>
-    <td>${(r.latitude&&r.longitude)?`<span class="tg g">${Number(r.latitude).toFixed(6)}</span>`:'<span class="tg o">—</span>'}</td>
-    <td>${(r.latitude&&r.longitude)?`<span class="tg g">${Number(r.longitude).toFixed(6)}</span>`:'<span class="tg o">—</span>'}</td>
+      <td>${(r.latitude&&r.longitude)?`<span class="tg g" style="cursor:pointer" title="点击在高德地图查看" onclick="openAmap(${r.latitude},${r.longitude},'${esc(r.ssid||r.bssid)}')">${Number(r.latitude).toFixed(6)}</span>`:'<span class="tg o">—</span>'}</td>
+    <td>${(r.latitude&&r.longitude)?`<span class="tg g" style="cursor:pointer" title="点击在高德地图查看" onclick="openAmap(${r.latitude},${r.longitude},'${esc(r.ssid||r.bssid)}')">${Number(r.longitude).toFixed(6)}</span>`:'<span class="tg o">—</span>'}</td>
     <td>${esc(r.created_by||'')}</td><td>${esc(r.collect_time||'')}</td>
     ${showOps?`<td>${hasP('records_delete')?`<span class="lnk d" onclick="delWifi('${esc(r.bssid)}')">删除</span>`:''}</td>`:''}
   </tr>`).join('')}</table>`;
@@ -505,7 +534,7 @@ async function renderUnits(){
       <td>${u.wifi_count||0}</td>
       <td>${u.wifi_status==='none'?'<span class="tg b">无 WiFi</span>'
             :(u.wifi_count>0?'<span class="tg g">已绑定</span>':'<span class="tg o">未绑定</span>')}</td>
-      <td>${(u.latitude&&u.longitude)?`<span class="tg g">${Number(u.latitude).toFixed(6)}, ${Number(u.longitude).toFixed(6)}</span>`:'<span class="tg o">无</span>'}</td>
+      <td>${(u.latitude&&u.longitude)?`<span class="tg g" style="cursor:pointer" title="点击在高德地图查看" onclick="openAmap(${u.latitude},${u.longitude},'${esc(u.unit_name)}')">${Number(u.latitude).toFixed(6)}, ${Number(u.longitude).toFixed(6)}</span>`:'<span class="tg o">无</span>'}</td>
       <td>${hasP('units_create')?`<span class="lnk" onclick="editUnit(${u.id})">编辑</span>`:''}
           ${hasP('units_delete')?`<span class="lnk d" onclick="delUnit(${u.id},'${esc(u.unit_name)}')">删除</span>`:''}</td>
     </tr>`).join('')}</table>`:'<div class="empty">暂无单位</div>'}
