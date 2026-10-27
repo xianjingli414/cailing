@@ -174,7 +174,7 @@
 
 <div class="status-bar">
   <span class="time" id="clock">15:30</span>
-  <span style="font-size:11px;color:var(--text3)">v17.8</span>
+  <span style="font-size:11px;color:var(--text3)">v17.9</span>
   <button class="user-badge" id="userBadge" onclick="switchPage('mine')">
     <div class="user-avatar" id="userAvatar">客</div>
     <span id="userLabel">游客</span>
@@ -474,22 +474,28 @@ const DB = {
       if (!unitResp.ok) { console.log('syncFromServer: units fetch failed (' + unitResp.status + '), skip'); return; }
       const unitData = await unitResp.json();
       const serverUnits = unitData.units || [];
-      // [修复] 不再删除本地有而服务器没有的单位：
-      // 本地可能存有尚未上传的新增单位，误删会永久丢失
+      const serverUnitNames = new Set(serverUnits.map(u => u.unit_name));
       const beforeUnitLen = this.units.length;
       // 合并服务器新增的单位
       let newUnits = 0;
       for (const u of serverUnits) {
-        if (!this.units.find(x => x.unit_name === u.unit_name)) {
+        const _eu = this.units.find(x => x.unit_name === u.unit_name);
+        if (!_eu) {
           this.units.unshift({
             id: this._nextUnitId++, unit_name: u.unit_name,
             credit_code: u.credit_code || '', address: u.address || '',
             latitude: (u.latitude != null ? u.latitude : null), longitude: (u.longitude != null ? u.longitude : null),
-            create_time: u.create_time || new Date().toLocaleString('zh-CN')
+            create_time: u.create_time || new Date().toLocaleString('zh-CN'),
+            synced: true
           });
           newUnits++;
+        } else {
+          _eu.synced = true;
         }
       }
+      // [修复] 清理"来自服务器、但服务器已不再返回"的单位（换部门/被删/无权查看）
+      // 只清理 synced===true（服务器来源）的；本地新建未上传的（synced!==true）一律保留
+      this.units = this.units.filter(u => u.synced !== true || serverUnitNames.has(u.unit_name));
       if (newUnits > 0 || this.units.length !== beforeUnitLen) {
         this.saveUnits();
         console.log('syncFromServer: +' + newUnits + ' new units, removed ' + (beforeUnitLen - this.units.length + newUnits) + ' stale');
@@ -500,9 +506,11 @@ const DB = {
       if (!wifiResp.ok) { console.log('syncFromServer: wifi fetch failed (' + wifiResp.status + '), skip'); return; }
       const wifiData = await wifiResp.json();
       const serverRecords = wifiData.records || [];
-      // [修复] 不再删除本地有而服务器没有的WiFi记录：
-      // ① 本地可能存有尚未上传的新采集数据，直接删除会永久丢失
-      // ② 服务端 /api/wifi 按角色隔离（operator 仅能拉到自己采集的），删除会误删他人数据
+      const serverBssids = new Set(serverRecords.map(r => r.bssid));
+      // 【数据隔离】本地记录区分两类：
+      //   synced===true  → 来自服务器（当前账号有权查看的）
+      //   synced!==true  → 本地新建、尚未上传（必须保留，否则现场采集会丢）
+      // 同步后只清理「服务器来源但本次没返回」的：换账号/换部门/被删/无权查看
       const beforeWifiLen = this.wifiRecords.length;
       // 合并服务器新增/更新的WiFi记录
       let newCnt = 0, updateCnt = 0;
@@ -522,11 +530,12 @@ const DB = {
             collect_time: r.collect_time || new Date().toLocaleString('zh-CN'),
             unit_id: localUnitId, unit_name: r.unit_name || '',
             latitude: r.latitude || null, longitude: r.longitude || null,
-            exported: false, id: this._nextWifiId++
+            exported: false, synced: true, id: this._nextWifiId++
           });
           newCnt++;
         } else {
           // 已存在：同步服务器的最新字段（绑定信息、经纬度等）
+          existing.synced = true;
           let _changed = false;
           if (r.unit_name && r.unit_name !== existing.unit_name) {
             existing.unit_id = localUnitId;
@@ -543,6 +552,9 @@ const DB = {
           if (_changed) updateCnt++;
         }
       }
+      // [修复] 清理「服务器来源但本次未返回」的记录：换账号/换部门/被删/无权查看
+      // 本地新建未上传的（synced!==true）保留，不会丢现场采集数据
+      this.wifiRecords = this.wifiRecords.filter(r => r.synced !== true || serverBssids.has(r.bssid));
       if (newCnt > 0 || updateCnt > 0 || this.wifiRecords.length !== beforeWifiLen) {
         this.saveWifi();
         console.log('syncFromServer: +' + newCnt + ' new, ~' + updateCnt + ' updated, removed ' + (beforeWifiLen - this.wifiRecords.length + newCnt));
@@ -590,11 +602,11 @@ const DB = {
       }
       return false;
     }
-    r.id = this._nextWifiId++; r.collect_time = new Date().toLocaleString('zh-CN'); r.unit_id = null; r.unit_name = ''; r.exported = false;
+    r.id = this._nextWifiId++; r.collect_time = new Date().toLocaleString('zh-CN'); r.unit_id = null; r.unit_name = ''; r.exported = false; r.synced = false;
     if (!r.latitude) r.latitude = null; if (!r.longitude) r.longitude = null;
     this.wifiRecords.unshift(r); this.saveWifi(); return true;
   },
-  addUnit(u) { if (this.units.find(x => x.unit_name === u.unit_name)) return false; u.id = this._nextUnitId++; u.create_time = new Date().toLocaleString('zh-CN'); this.units.unshift(u); this.saveUnits(); return true; },
+  addUnit(u) { if (this.units.find(x => x.unit_name === u.unit_name)) return false; u.id = this._nextUnitId++; u.create_time = new Date().toLocaleString('zh-CN'); u.synced = false; this.units.unshift(u); this.saveUnits(); return true; },
   updateUnit(id, data) { const u = this.units.find(x => x.id === id); if (u) { Object.assign(u, data); this.saveUnits(); return true; } return false; },
   deleteUnit(id) { this.units = this.units.filter(x => x.id !== id); this.wifiRecords.forEach(r => { if (r.unit_id === id) { r.unit_id = null; r.unit_name = ''; } }); this.saveUnits(); this.saveWifi(); },
   deleteWifi(id) { this.wifiRecords = this.wifiRecords.filter(x => x.id !== id); this.saveWifi(); },
@@ -1302,7 +1314,15 @@ function renderMyPerms(){
   }
   document.getElementById('myPermsList').innerHTML=html;
 }
+// 切换账号/退出登录时，清理上一账号从服务器同步下来的数据
+// 只清 synced===true（服务器来源）的；本地新建未上传的（synced!==true）保留，避免丢失现场采集
+function clearSyncedLocalData(){
+  DB.wifiRecords = DB.wifiRecords.filter(r => r.synced !== true);
+  DB.units = DB.units.filter(u => u.synced !== true);
+  DB.saveWifi(); DB.saveUnits();
+}
 async function doLogin(){
+  const _prevUser = DB.currentUser ? DB.currentUser.username : null;
   const user=document.getElementById('loginUser').value.trim(), pass=document.getElementById('loginPass').value.trim();
   if(!user||!pass){showToast('请输入账号和密码');return;}
   // 优先通过本地 Flask API 登录（webview bootstrap 模式）
@@ -1310,7 +1330,7 @@ async function doLogin(){
     const resp=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user,password:pass})});
     const res=await resp.json();
     if(res.success){
-      DB.currentUser={username:user,displayName:res.result?.displayName||user,role:res.result?.role||'operator',dept_id:res.result?.dept_id||null,dept_name:res.result?.dept_name||'',perms:res.result?.perms||null};DB.saveUser();
+      if(_prevUser&&_prevUser!==user)clearSyncedLocalData();DB.currentUser={username:user,displayName:res.result?.displayName||user,role:res.result?.role||'operator',dept_id:res.result?.dept_id||null,dept_name:res.result?.dept_name||'',perms:res.result?.perms||null};DB.saveUser();
       showToast(DB.currentUser.displayName+' 登录成功（已连接服务器）');
       if(res.result?.password_changed_at){const last=new Date(res.result.password_changed_at),now=new Date(),diff=now-last,days=diff/(24*3600*1000);if(days>90){document.getElementById('pwdExpireMsg').textContent='您的密码已超过3个月未更改（距今约 '+Math.floor(days)+' 天），建议及时修改以保证账户安全。';openModal('pwdExpireModal');}}
       applyModuleVisibility();renderMine();switchPage('mine');
@@ -1325,7 +1345,7 @@ async function doLogin(){
     try{
       const res=JSON.parse(NativeBridge.login(user,pass));
       if(res.success){
-        DB.currentUser={username:user,displayName:res.result?.displayName||user,role:res.result?.role||'operator',dept_id:res.result?.dept_id||null,dept_name:res.result?.dept_name||'',perms:res.result?.perms||null};DB.saveUser();
+        if(_prevUser&&_prevUser!==user)clearSyncedLocalData();DB.currentUser={username:user,displayName:res.result?.displayName||user,role:res.result?.role||'operator',dept_id:res.result?.dept_id||null,dept_name:res.result?.dept_name||'',perms:res.result?.perms||null};DB.saveUser();
         showToast(DB.currentUser.displayName+' 登录成功（已连接服务器）');
         if(res.result?.password_changed_at){const last=new Date(res.result.password_changed_at),now=new Date(),diff=now-last,days=diff/(24*3600*1000);if(days>90){document.getElementById('pwdExpireMsg').textContent='您的密码已超过3个月未更改（距今约 '+Math.floor(days)+' 天），建议及时修改以保证账户安全。';openModal('pwdExpireModal');}}
         applyModuleVisibility();renderMine();switchPage('mine');
@@ -1337,7 +1357,7 @@ async function doLogin(){
   }
   // 降级：本地验证
   const found=USERS.find(u=>u.username===user&&u.password===pass);
-  if(found){DB.currentUser={username:found.username,displayName:found.displayName,role:found.role,dept_id:null,dept_name:'',perms:null};DB.saveUser();showToast(found.displayName+' 登录成功（离线模式）');
+  if(found){if(_prevUser&&_prevUser!==user)clearSyncedLocalData();DB.currentUser={username:found.username,displayName:found.displayName,role:found.role,dept_id:null,dept_name:'',perms:null};DB.saveUser();showToast(found.displayName+' 登录成功（离线模式）');
     if(found.password_changed_at){const last=new Date(found.password_changed_at),now=new Date(),diff=now-last,days=diff/(24*3600*1000);if(days>90){document.getElementById('pwdExpireMsg').textContent='您的密码已超过3个月未更改（距今约 '+Math.floor(days)+' 天），建议及时修改以保证账户安全。';openModal('pwdExpireModal');}}}else{showToast('账号或密码错误');return;}
   applyModuleVisibility();renderMine();switchPage('mine');
   // 即使本地验证成功也尝试同步服务器数据
@@ -1348,7 +1368,7 @@ async function doLogout(){
   DB.stopAutoSync();
   try{await fetch('/api/logout',{method:'POST'});}catch(e){}
   if(typeof NativeBridge!=='undefined'&&typeof NativeBridge.logout==='function'){try{NativeBridge.logout();}catch(e){}}
-  DB.currentUser=null;DB.saveUser();applyModuleVisibility();showToast('已退出登录');updateUserBadge();renderMine();switchPage('records');
+  clearSyncedLocalData();DB.currentUser=null;DB.saveUser();applyModuleVisibility();showToast('已退出登录');updateUserBadge();renderMine();switchPage('records');
 }
 function updateUserBadge(){const badge=document.getElementById('userBadge'),avatar=document.getElementById('userAvatar'),label=document.getElementById('userLabel');if(DB.currentUser){badge.className='user-badge'+(DB.currentUser.role==='admin'?' admin':'');avatar.textContent=(DB.currentUser.displayName||'U')[0];label.textContent=DB.currentUser.displayName;}else{badge.className='user-badge';avatar.textContent='?';label.textContent='未登录';}}
 
