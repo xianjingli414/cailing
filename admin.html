@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>采灵 · 管理后台</title>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;color:#1f2329;font-size:13px;background:#f0f2f5}
+/* 登录 */
+.login{position:fixed;inset:0;background:linear-gradient(135deg,#001529,#1677ff);display:flex;align-items:center;justify-content:center;z-index:99}
+.lbox{background:#fff;border-radius:10px;padding:32px 34px;width:340px;box-shadow:0 8px 28px rgba(0,0,0,.22)}
+.lttl{font-size:19px;font-weight:600;margin-bottom:5px}
+.lsub{font-size:12px;color:#8c8c8c;margin-bottom:22px}
+.lbox input{width:100%;padding:9px 11px;border:1px solid #d9d9d9;border-radius:6px;font-size:13px;margin-bottom:12px}
+.lbox button{width:100%;padding:9px;background:#1677ff;color:#fff;border:none;border-radius:6px;font-size:14px;cursor:pointer}
+.lerr{color:#e5432f;font-size:12px;margin-top:9px;min-height:16px}
+/* 布局 */
+.top{background:#001529;color:#fff;height:50px;display:flex;align-items:center;padding:0 18px;gap:14px}
+.logo{font-size:16px;font-weight:600}
+.tr{margin-left:auto;display:flex;align-items:center;gap:13px;font-size:12.5px;opacity:.93}
+.avt{width:27px;height:27px;border-radius:50%;background:#1677ff;display:flex;align-items:center;justify-content:center;font-size:12px}
+.lk{color:#8cc5ff;cursor:pointer}
+.body{display:flex;min-height:calc(100vh - 50px)}
+.side{width:170px;background:#fff;border-right:1px solid #e8e8e8;padding:12px 0;flex-shrink:0}
+.mi{padding:10px 18px;font-size:13.5px;color:#5c6773;cursor:pointer;display:flex;gap:9px;align-items:center}
+.mi:hover{background:#f5f7fa}
+.mi.on{background:#e6f0ff;color:#1677ff;border-right:3px solid #1677ff;font-weight:500}
+.mi.sub{padding-left:40px;font-size:12.5px;color:#8c8c8c}
+.main{flex:1;padding:18px;overflow-x:auto}
+.crumb{font-size:12px;color:#8c8c8c;margin-bottom:13px}
+/* 卡片 */
+.cards{display:flex;gap:13px;margin-bottom:15px;flex-wrap:wrap}
+.card{background:#fff;border-radius:8px;padding:15px;flex:1;min-width:125px;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+.ct{font-size:12px;color:#8c8c8c}
+.cv{font-size:25px;font-weight:600;margin-top:5px}
+.cs{font-size:11px;color:#52c41a;margin-top:3px}
+.cs.warn{color:#e5432f}
+/* 面板 */
+.panel{background:#fff;border-radius:8px;padding:15px;margin-bottom:13px;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+.pt{font-size:14px;font-weight:600;margin-bottom:12px;display:flex;align-items:center}
+.pt .r{margin-left:auto;font-size:12px;color:#1677ff;font-weight:400;cursor:pointer}
+.bar{height:8px;background:#f0f0f0;border-radius:4px;overflow:hidden;margin:8px 0 6px}
+.bar i{display:block;height:100%;background:#1677ff;transition:width .3s}
+.bar i.warn{background:#e5432f}
+.bl{display:flex;justify-content:space-between;font-size:12.5px;color:#5c6773}
+/* 表格 */
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{background:#fafafa;padding:10px;border-bottom:1px solid #f0f0f0;color:#5c6773;font-weight:500;white-space:nowrap;text-align:left}
+td{padding:9px 10px;border-bottom:1px solid #f5f5f5}
+tr:hover td{background:#fafcff}
+/* 控件 */
+.filt{display:flex;gap:9px;margin-bottom:12px;flex-wrap:wrap;align-items:center}
+.inp{padding:6px 11px;border:1px solid #d9d9d9;border-radius:5px;font-size:12.5px;width:180px}
+.sel{padding:6px 9px;border:1px solid #d9d9d9;border-radius:5px;font-size:12.5px;background:#fff}
+.btn{padding:6px 14px;border-radius:5px;font-size:12.5px;border:1px solid #d9d9d9;background:#fff;cursor:pointer}
+.btn-p{background:#1677ff;color:#fff;border-color:#1677ff}
+.btn-d{background:#fff2f0;color:#e5432f;border-color:#ffccc7}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.lnk{color:#1677ff;cursor:pointer;margin-right:9px}
+.lnk.d{color:#e5432f}
+.tg{display:inline-block;padding:1px 8px;border-radius:3px;font-size:11px}
+.g{background:#e8f8ee;color:#2ba24d}
+.b{background:#e6f0ff;color:#1677ff}
+.o{background:#fff3e6;color:#d98c00}
+.r{background:#fff2f0;color:#e5432f}
+.pg{display:flex;justify-content:flex-end;align-items:center;gap:6px;margin-top:12px;font-size:12.5px;color:#8c8c8c}
+.pg i{display:inline-block;padding:4px 10px;border:1px solid #d9d9d9;border-radius:4px;cursor:pointer;font-style:normal}
+.pg i.on{background:#1677ff;color:#fff;border-color:#1677ff}
+/* 排行 */
+.rank{display:flex;align-items:center;gap:11px;padding:8px 0;border-bottom:1px solid #f5f5f5;font-size:13px}
+.rk{width:20px;height:20px;border-radius:50%;background:#f0f0f0;color:#666;font-size:11px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.rk.t1{background:#1677ff;color:#fff}
+.rn{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rb{width:110px;height:7px;background:#f0f0f0;border-radius:4px;overflow:hidden;flex-shrink:0}
+.rb i{display:block;height:100%;background:#1677ff}
+.rv{color:#8c8c8c;font-size:12.5px;width:52px;text-align:right;flex-shrink:0}
+/* 弹窗 */
+.mask{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:50}
+.mask.on{display:flex}
+.mbox{background:#fff;border-radius:9px;padding:20px;width:430px;max-height:86vh;overflow:auto}
+.mttl{font-size:15px;font-weight:600;margin-bottom:14px}
+.frow{display:flex;align-items:center;margin-bottom:11px;font-size:13px}
+.frow label{width:96px;color:#8c8c8c;flex-shrink:0}
+.frow input,.frow select{flex:1;padding:6px 10px;border:1px solid #d9d9d9;border-radius:5px;font-size:13px}
+.mfoot{display:flex;gap:10px;justify-content:flex-end;margin-top:16px}
+/* 权限开关 */
+.sw{width:36px;height:19px;border-radius:10px;background:#d9d9d9;position:relative;cursor:pointer;display:inline-block;vertical-align:middle}
+.sw.on{background:#1677ff}
+.sw i{position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:50%;background:#fff;transition:.15s}
+.sw.on i{left:19px}
+.prow{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #f5f5f5;font-size:13px}
+.pdesc{font-size:11px;color:#8c8c8c;margin-top:2px}
+.note{background:#fffbe6;border:1px solid #ffe58f;border-radius:6px;padding:10px 12px;font-size:12.5px;color:#8a6d00;margin-top:11px;line-height:1.6}
+.empty{text-align:center;color:#bbb;padding:34px 0;font-size:13px}
+.toast{position:fixed;top:22px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.8);color:#fff;padding:10px 20px;border-radius:7px;font-size:13.5px;z-index:999;display:none}
+.hide{display:none!important}
+</style>
+</head>
+<body>
+
+<!-- 登录 -->
+<div class="login" id="loginPage">
+  <div class="lbox">
+    <div class="lttl">采灵 · 管理后台</div>
+    <div class="lsub">WiFi 采集数据管理平台</div>
+    <input id="lgUser" placeholder="账号" autocomplete="username">
+    <input id="lgPass" type="password" placeholder="密码" autocomplete="current-password">
+    <button onclick="doLogin()">登 录</button>
+    <div class="lerr" id="lgErr"></div>
+  </div>
+</div>
+
+<!-- 后台主体 -->
+<div id="appPage" class="hide">
+  <div class="top">
+    <div class="logo">采灵 · 管理后台</div>
+    <div class="tr">
+      <span id="topDept"></span>
+      <span id="topRole"></span>
+      <span class="avt" id="topAvt">-</span>
+      <span class="lk" onclick="doLogout()">退出</span>
+    </div>
+  </div>
+  <div class="body">
+    <div class="side">
+      <div class="mi on" data-p="home" onclick="go('home')">📊 首页</div>
+      <div class="mi" data-p="wifi" onclick="go('wifi')">📶 WiFi记录</div>
+      <div class="mi" data-p="units" onclick="go('units')">🏢 单位维护</div>
+      <div class="mi" data-p="stats" onclick="go('stats')">📈 统计分析</div>
+      <div class="mi hide" data-p="admin" id="miAdmin" onclick="go('admin')">⚙️ 后台管理</div>
+    </div>
+    <div class="main">
+      <div id="p-home"></div>
+      <div id="p-wifi" class="hide"></div>
+      <div id="p-units" class="hide"></div>
+      <div id="p-stats" class="hide"></div>
+      <div id="p-admin" class="hide"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 弹窗 -->
+<div class="mask" id="mask">
+  <div class="mbox" id="mbox"></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ═══ 全局状态 ═══ */
+let ME=null, PERMS={}, STATS=null;
+let wifiPage=1, unitPage=1, WIFI_SIZE=20, UNIT_SIZE=20;
+let wifiSel=new Set(), curUsers=[];
+const PERM_LABEL={scan_view:['扫描查看','查看WiFi扫描结果'],scan_bind:['采集绑定','扫描并绑定WiFi到单位'],
+ records_view:['记录查看','查看WiFi记录列表'],records_delete:['记录删除','删除WiFi记录'],
+ records_export:['记录导出','导出WiFi记录为Excel'],records_import:['记录导入','导入WiFi记录'],
+ units_view:['单位查看','查看单位信息'],units_create:['单位新建','新增/编辑单位'],
+ units_delete:['单位删除','删除单位及其绑定'],units_import:['单位导入','批量导入单位'],
+ users_manage:['用户管理','管理用户、角色与权限']};
+
+function toast(m){const t=document.getElementById('toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',2200);}
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function closeM(){document.getElementById('mask').classList.remove('on');}
+
+/* ═══ 登录 ═══ */
+async function doLogin(){
+  const u=document.getElementById('lgUser').value.trim(),
+        p=document.getElementById('lgPass').value.trim();
+  if(!u||!p){document.getElementById('lgErr').textContent='请输入账号和密码';return;}
+  try{
+    const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({username:u,password:p})});
+    const d=await r.json();
+    if(!d.success){document.getElementById('lgErr').textContent=d.error||'登录失败';return;}
+    const u2=d.result||d.user||{};
+    ME={username:u2.username||u,displayName:u2.displayName||u,role:u2.role||'operator',
+        dept_id:u2.dept_id,dept_name:u2.dept_name||''};
+    PERMS=u2.perms||{};
+    afterLogin();
+  }catch(e){document.getElementById('lgErr').textContent='网络错误：'+e.message;}
+}
+function afterLogin(){
+  document.getElementById('loginPage').classList.add('hide');
+  document.getElementById('appPage').classList.remove('hide');
+  const roleMap={admin:'超级管理员','dept_admin':'部门管理员',operator:'操作员'};
+  document.getElementById('topDept').textContent=ME.dept_name?('🏢 '+ME.dept_name):'🌐 全部部门';
+  document.getElementById('topRole').textContent=roleMap[ME.role]||ME.role;
+  document.getElementById('topAvt').textContent=(ME.displayName||ME.username)[0];
+  // 后台管理入口：需 users_manage
+  if(PERMS.users_manage===true||ME.role==='admin'||ME.role==='dept_admin')
+    document.getElementById('miAdmin').classList.remove('hide');
+  go('home');
+}
+async function doLogout(){
+  await fetch('/api/logout',{method:'POST'}).catch(()=>{});
+  location.reload();
+}
+function hasP(k){ if(ME&&ME.role==='admin')return true; return PERMS[k]!==false; }
+
+/* ═══ 页面切换 ═══ */
+function go(p){
+  ['home','wifi','units','stats','admin'].forEach(x=>{
+    document.getElementById('p-'+x).classList.toggle('hide',x!==p);
+  });
+  document.querySelectorAll('.mi').forEach(m=>m.classList.toggle('on',m.dataset.p===p));
+  if(p==='home')renderHome();
+  if(p==='wifi')renderWifi();
+  if(p==='units')renderUnits();
+  if(p==='stats')renderStats();
+  if(p==='admin')renderAdmin();
+}
+
+/* ═══ ① 首页 ═══ */
+async function renderHome(){
+  const el=document.getElementById('p-home');
+  el.innerHTML='<div class="crumb">首页 / 数据概览</div><div class="empty">加载中…</div>';
+  const [s,w]=await Promise.all([
+    fetch('/api/stats').then(r=>r.json()).catch(()=>null),
+    fetch('/api/wifi?page=1&page_size=6').then(r=>r.json()).catch(()=>null)
+  ]);
+  if(!s){el.innerHTML='<div class="empty">统计数据加载失败</div>';return;}
+  STATS=s;
+  const geoWarn=s.geo.rate<50;
+  el.innerHTML=`
+  <div class="crumb">首页 / 数据概览</div>
+  <div class="cards">
+    <div class="card"><div class="ct">WiFi 记录</div><div class="cv">${s.total_wifi}</div><div class="cs">今日 +${s.today_wifi}</div></div>
+    <div class="card"><div class="ct">单位总数</div><div class="cv">${s.total_units}</div><div class="cs">${ME.dept_name||'全部'}</div></div>
+    <div class="card"><div class="ct">今日采集</div><div class="cv">${s.today_wifi}</div><div class="cs">条</div></div>
+    <div class="card"><div class="ct">坐标采集率</div><div class="cv ${geoWarn?'':''}" style="${geoWarn?'color:#e5432f':''}">${s.geo.rate}%</div><div class="cs ${geoWarn?'warn':''}">${s.geo.with_coord} / ${s.total_wifi}</div></div>
+  </div>
+  <div style="display:flex;gap:13px;flex-wrap:wrap">
+    <div class="panel" style="flex:1;min-width:240px">
+      <div class="pt">绑定情况</div>
+      <div class="bl"><span>已绑定 ${s.binding.bound}</span><span>${s.binding.rate}%</span></div>
+      <div class="bar"><i style="width:${s.binding.rate}%"></i></div>
+      <div class="bl" style="color:#8c8c8c"><span>未绑定 ${s.binding.unbound}</span></div>
+    </div>
+    <div class="panel" style="flex:1;min-width:240px">
+      <div class="pt">经纬度采集</div>
+      <div class="bl"><span>有坐标 ${s.geo.with_coord}</span><span style="color:${geoWarn?'#e5432f':'#52c41a'}">${s.geo.rate}%</span></div>
+      <div class="bar"><i class="${geoWarn?'warn':''}" style="width:${Math.max(s.geo.rate,0.5)}%"></i></div>
+      <div class="bl" style="color:#8c8c8c"><span>缺坐标 ${s.geo.without_coord}</span></div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="pt">最近采集<span class="r" onclick="go('wifi')">查看全部 →</span></div>
+    ${renderWifiTable(w&&w.records||[],false)}
+  </div>`;
+}
+function renderWifiTable(rows,showOps){
+  if(!rows.length)return '<div class="empty">暂无数据</div>';
+  return `<table><tr><th>SSID</th><th>BSSID</th><th>信号</th><th>信道</th><th>频段</th><th>关联单位</th><th>经纬度</th><th>采集人</th><th>采集时间</th>${showOps?'<th>操作</th>':''}</tr>
+  ${rows.map(r=>`<tr>
+    <td>${esc(r.ssid||'<隐藏>')}</td><td>${esc(r.bssid)}</td><td>${r.signal||0}</td><td>${r.channel||0}</td><td>${esc(r.band)}</td>
+    <td>${r.unit_name?`<span class="tg b">${esc(r.unit_name)}</span>`:'<span class="tg o">未绑定</span>'}</td>
+    <td>${(r.latitude&&r.longitude)?`<span class="tg g">${Number(r.latitude).toFixed(6)}, ${Number(r.longitude).toFixed(6)}</span>`:'<span class="tg o">未定位</span>'}</td>
+    <td>${esc(r.created_by||'')}</td><td>${esc(r.collect_time||'')}</td>
+    ${showOps?`<td>${hasP('records_delete')?`<span class="lnk d" onclick="delWifi('${esc(r.bssid)}')">删除</span>`:''}</td>`:''}
+  </tr>`).join('')}</table>`;
+}
+
+/* ═══ ② WiFi记录 ═══ */
+async function renderWifi(){
+  const el=document.getElementById('p-wifi');
+  const kw=document.getElementById('wfKw')?document.getElementById('wfKw').value:'';
+  const band=document.getElementById('wfBand')?document.getElementById('wfBand').value:'';
+  const bound=document.getElementById('wfBound')?document.getElementById('wfBound').value:'';
+  const coord=document.getElementById('wfCoord')?document.getElementById('wfCoord').value:'';
+  const cb=document.getElementById('wfUser')?document.getElementById('wfUser').value:'';
+  const q=new URLSearchParams({page:wifiPage,page_size:WIFI_SIZE});
+  if(kw)q.set('ssid',kw); if(band)q.set('band',band);
+  if(bound)q.set('bound',bound); if(coord)q.set('coord',coord); if(cb)q.set('created_by',cb);
+  const d=await fetch('/api/wifi?'+q).then(r=>r.json()).catch(()=>null);
+  const users=STATS?(STATS.users.by_user||[]):[];
+  const uopt=users.map(u=>`<option value="${esc(u.name)}" ${cb===u.name?'selected':''}>${esc(u.name)}</option>`).join('');
+  el.innerHTML=`
+  <div class="crumb">WiFi记录</div>
+  <div class="panel">
+    <div class="filt">
+      <input class="inp" id="wfKw" placeholder="搜索 SSID / BSSID" value="${esc(kw)}" onkeydown="if(event.key==='Enter'){wifiPage=1;renderWifi();}">
+      <select class="sel" id="wfBand" onchange="wifiPage=1;renderWifi()">
+        <option value="">全部频段</option><option value="2.4G" ${band==='2.4G'?'selected':''}>2.4G</option><option value="5G" ${band==='5G'?'selected':''}>5G</option></select>
+      <select class="sel" id="wfBound" onchange="wifiPage=1;renderWifi()">
+        <option value="">全部绑定</option><option value="bound" ${bound==='bound'?'selected':''}>已绑定</option><option value="unbound" ${bound==='unbound'?'selected':''}>未绑定</option></select>
+      <select class="sel" id="wfCoord" onchange="wifiPage=1;renderWifi()">
+        <option value="">全部坐标</option><option value="has" ${coord==='has'?'selected':''}>有经纬度</option><option value="none" ${coord==='none'?'selected':''}>无经纬度</option></select>
+      <select class="sel" id="wfUser" onchange="wifiPage=1;renderWifi()"><option value="">全部采集人</option>${uopt}</select>
+      <button class="btn" onclick="wifiPage=1;renderWifi()">查询</button>
+      ${hasP('records_export')?'<button class="btn btn-p" onclick="exportWifi()">导出当前筛选</button>':''}
+    </div>
+    ${d?renderWifiTable(d.records||[],true):'<div class="empty">加载失败</div>'}
+    ${d?pager(d.total||0,d.page||1,Math.ceil((d.total||0)/WIFI_SIZE),'wifi'):''}
+  </div>`;
+}
+function pager(total,page,pages,tag){
+  if(!pages||pages<1)return '';
+  let h=`<div class="pg">共 ${total} 条 `;
+  h+=`<i onclick="${tag}Page=${Math.max(1,page-1)};render${tag[0].toUpperCase()+tag.slice(1)}()">‹</i>`;
+  for(let i=1;i<=Math.min(pages,7);i++) h+=`<i class="${i===page?'on':''}" onclick="${tag}Page=${i};render${tag[0].toUpperCase()+tag.slice(1)}()">${i}</i>`;
+  h+=`<i onclick="${tag}Page=${Math.min(pages,page+1)};render${tag[0].toUpperCase()+tag.slice(1)}()">›</i></div>`;
+  return h;
+}
+async function delWifi(bssid){
+  if(!confirm('确定删除该 WiFi 记录？此操作不可恢复。'))return;
+  const r=await fetch('/api/wifi/bssid/'+encodeURIComponent(bssid),{method:'DELETE'})
+    .then(x=>x.json()).catch(()=>null);
+  toast(r&&r.success?'已删除':'删除失败');
+  renderWifi();
+}
+async function exportWifi(){
+  toast('正在导出…');
+  const kw=document.getElementById('wfKw').value, band=document.getElementById('wfBand').value,
+        bound=document.getElementById('wfBound').value, coord=document.getElementById('wfCoord').value,
+        cb=document.getElementById('wfUser').value;
+  const q=new URLSearchParams({page:1,page_size:100000});
+  if(kw)q.set('ssid',kw); if(band)q.set('band',band);
+  if(bound)q.set('bound',bound); if(coord)q.set('coord',coord); if(cb)q.set('created_by',cb);
+  const d=await fetch('/api/wifi?'+q).then(r=>r.json()).catch(()=>null);
+  if(!d||!d.records){toast('导出失败');return;}
+  saveXlsx([['SSID','BSSID','信号(dBm)','信道','加密方式','频段','厂商','关联单位','纬度','经度','采集人','采集时间'],
+    ...d.records.map(r=>[r.ssid,r.bssid,r.signal,r.channel,r.encrypt_type,r.band,r.vendor,r.unit_name,r.latitude,r.longitude,r.created_by,r.collect_time])],
+    'WiFi记录','WiFi记录_'+today());
+}
+function today(){return new Date().toLocaleDateString('zh-CN').replace(/\//g,'-');}
+function saveXlsx(data,sheet,filename){
+  const ws=XLSX.utils.aoa_to_sheet(data);
+  ws['!cols']=data[0].map(()=>({wch:17}));
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,sheet);
+  XLSX.writeFile(wb,filename+'.xlsx');
+  toast('已导出 '+Math.max(0,data.length-1)+' 条');
+}
+
+/* ═══ ③ 单位维护 ═══ */
+async function renderUnits(){
+  const el=document.getElementById('p-units');
+  const kw=document.getElementById('utKw')?document.getElementById('utKw').value:'';
+  const coord=document.getElementById('utCoord')?document.getElementById('utCoord').value:'';
+  const bound=document.getElementById('utBound')?document.getElementById('utBound').value:'';
+  const q=new URLSearchParams({page:unitPage,page_size:UNIT_SIZE});
+  if(kw)q.set('keyword',kw); if(coord)q.set('coord',coord);
+  const d=await fetch('/api/units?'+q).then(r=>r.json()).catch(()=>null);
+  const rows=(d&&d.records)||[];
+  el.innerHTML=`
+  <div class="crumb">单位维护</div>
+  <div class="panel">
+    <div class="filt">
+      <input class="inp" id="utKw" placeholder="搜索单位名称 / 信用代码" value="${esc(kw)}" onkeydown="if(event.key==='Enter'){unitPage=1;renderUnits();}">
+      <select class="sel" id="utCoord" onchange="unitPage=1;renderUnits()">
+        <option value="">全部坐标</option><option value="has" ${coord==='has'?'selected':''}>有经纬度</option><option value="none" ${coord==='none'?'selected':''}>无经纬度</option></select>
+      <button class="btn" onclick="unitPage=1;renderUnits()">查询</button>
+      ${hasP('units_create')?'<button class="btn btn-p" onclick="editUnit(null)">+ 新增单位</button>':''}
+    </div>
+    ${rows.length?`<table><tr><th>单位名称</th><th>统一社会信用代码</th><th>地址</th><th>关联WiFi</th><th>经纬度</th><th>操作</th></tr>
+    ${rows.map(u=>`<tr>
+      <td>${esc(u.unit_name)}</td><td>${esc(u.credit_code||'')}</td><td>${esc(u.address||'')}</td>
+      <td>${u.wifi_count||0}</td>
+      <td>${(u.latitude&&u.longitude)?`<span class="tg g">${Number(u.latitude).toFixed(6)}, ${Number(u.longitude).toFixed(6)}</span>`:'<span class="tg o">无</span>'}</td>
+      <td>${hasP('units_create')?`<span class="lnk" onclick="editUnit(${u.id})">编辑</span>`:''}
+          ${hasP('units_delete')?`<span class="lnk d" onclick="delUnit(${u.id},'${esc(u.unit_name)}')">删除</span>`:''}</td>
+    </tr>`).join('')}</table>`:'<div class="empty">暂无单位</div>'}
+    ${d?pager(d.total||0,d.page||1,Math.ceil((d.total||0)/UNIT_SIZE),'unit'):''}
+  </div>
+  <div class="note">📌 本页为后台单位维护，<b>不含 WiFi 采集功能</b>——采集在手机 App 端现场完成。此处可补录单位经纬度坐标。</div>`;
+}
+function editUnit(id){
+  // 简化：以弹窗收集资料（含经纬度）
+  const isNew=!id;
+  let u=null;
+  if(!isNew){
+    // 从当前表格行取（避免再请求）；退化为提示
+    u={unit_name:'',credit_code:'',address:'',latitude:'',longitude:''};
+    // 通过 API 精确获取
+    fetch('/api/units?page=1&page_size=100000').then(r=>r.json()).then(d=>{
+      const t=(d.records||[]).find(x=>x.id===id);
+      showUnitModal(id,t||u);
+    });
+    return;
+  }
+  showUnitModal(null,{unit_name:'',credit_code:'',address:'',latitude:'',longitude:''});
+}
+function showUnitModal(id,u){
+  document.getElementById('mbox').innerHTML=`
+    <div class="mttl">${id?'编辑单位':'新增单位'}</div>
+    <div class="frow"><label>单位名称</label><input id="umName" value="${esc(u.unit_name||'')}"></div>
+    <div class="frow"><label>信用代码</label><input id="umCode" value="${esc(u.credit_code||'')}"></div>
+    <div class="frow"><label>地址</label><input id="umAddr" value="${esc(u.address||'')}"></div>
+    <div class="frow"><label>纬度 WGS84</label><input id="umLat" value="${u.latitude!=null?u.latitude:''}" placeholder="如 30.17132"></div>
+    <div class="frow"><label>经度 WGS84</label><input id="umLng" value="${u.longitude!=null?u.longitude:''}" placeholder="如 120.38532"></div>
+    <div class="note">坐标为 WGS84（GPS 原生）。可留空，留空时若该单位绑定了带坐标的 WiFi，系统会自动回填。</div>
+    <div class="mfoot"><button class="btn" onclick="closeM()">取消</button>
+    <button class="btn btn-p" onclick="saveUnit(${id?('"'+esc(u.unit_name)+'"'):'null'})">保存</button></div>`;
+  document.getElementById('mask').classList.add('on');
+}
+async function saveUnit(oldName){
+  const p={unit_name:document.getElementById('umName').value.trim(),
+    credit_code:document.getElementById('umCode').value.trim(),
+    address:document.getElementById('umAddr').value.trim()};
+  const la=document.getElementById('umLat').value.trim(), lo=document.getElementById('umLng').value.trim();
+  p.latitude=la?parseFloat(la):null; p.longitude=lo?parseFloat(lo):null;
+  if(!p.unit_name){toast('请输入单位名称');return;}
+  let r;
+  if(oldName) r=await fetch('/api/units/name/'+encodeURIComponent(oldName),{method:'PUT',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(p)}).then(x=>x.json()).catch(()=>null);
+  else r=await fetch('/api/units',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(p)}).then(x=>x.json()).catch(()=>null);
+  toast(r&&(r.success||r.updated||r.id)?'已保存':'保存失败');
+  closeM(); renderUnits();
+}
+async function delUnit(id,name){
+  if(!confirm(`确定删除单位「${name}」？该单位下已绑定的 WiFi 记录将一并删除，不可恢复。`))return;
+  const r=await fetch('/api/units/name/'+encodeURIComponent(name),{method:'DELETE'})
+    .then(x=>x.json()).catch(()=>null);
+  toast(r&&(r.success||r.deleted)?'已删除':'删除失败');
+  renderUnits();
+}
+
+/* ═══ ④ 统计分析 ═══ */
+async function renderStats(){
+  const el=document.getElementById('p-stats');
+  const s=STATS||await fetch('/api/stats').then(r=>r.json()).catch(()=>null);
+  if(!s){el.innerHTML='<div class="empty">加载失败</div>';return;}
+  const mkRank=(rows,max)=>rows.slice(0,10).map((r,i)=>`
+    <div class="rank"><div class="rk ${i===0?'t1':''}">${i+1}</div>
+    <div class="rn">${esc(r.name)}</div>
+    <div class="rb"><i style="width:${max?Math.round(r.count*100/max):0}%"></i></div>
+    <div class="rv">${r.count}</div></div>`).join('');
+  const lackGeo=(s.geo.by_unit||[]).map(u=>({name:u.name,count:(u.count||0)-(u.with_coord||0)}))
+    .filter(u=>u.count>0).sort((a,b)=>b.count-a.count);
+  el.innerHTML=`
+  <div class="crumb">统计分析</div>
+  <div class="cards">
+    <div class="card"><div class="ct">绑定率</div><div class="cv">${s.binding.rate}%</div><div class="cs">${s.binding.bound} / ${s.total_wifi}</div></div>
+    <div class="card"><div class="ct">坐标采集率</div><div class="cv" style="color:${s.geo.rate<50?'#e5432f':'#52c41a'}">${s.geo.rate}%</div><div class="cs ${s.geo.rate<50?'warn':''}">${s.geo.with_coord} / ${s.total_wifi}</div></div>
+    <div class="card"><div class="ct">采集人数</div><div class="cv">${(s.users.by_user||[]).length}</div><div class="cs">人</div></div>
+  </div>
+  <div style="display:flex;gap:13px;flex-wrap:wrap">
+    <div class="panel" style="flex:1;min-width:270px">
+      <div class="pt">单位绑定量 Top10</div>
+      ${mkRank(s.binding.by_unit||[],(s.binding.by_unit||[])[0]?s.binding.by_unit[0].count:1)}
+    </div>
+    <div class="panel" style="flex:1;min-width:270px">
+      <div class="pt">采集人排行</div>
+      ${mkRank(s.users.by_user||[],(s.users.by_user||[])[0]?s.users.by_user[0].count:1)}
+    </div>
+  </div>
+  <div class="panel">
+    <div class="pt">缺坐标最多的单位<span class="r" onclick="exportStats()">导出全部统计 →</span></div>
+    ${lackGeo.length?mkRank(lackGeo,lackGeo[0].count):'<div class="empty">🎉 全部已采集坐标</div>'}
+  </div>`;
+}
+function exportStats(){
+  const s=STATS; if(!s){toast('统计未加载');return;}
+  const wb=XLSX.utils.book_new();
+  const add=(name,rows)=>{const ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=rows[0].map(()=>({wch:20}));
+    XLSX.utils.book_append_sheet(wb,ws,name);};
+  add('总览',[['指标','值'],['WiFi记录',s.total_wifi],['单位总数',s.total_units],['今日采集',s.today_wifi],
+    ['已绑定',s.binding.bound],['绑定率',s.binding.rate+'%'],['有坐标',s.geo.with_coord],['坐标采集率',s.geo.rate+'%']]);
+  add('单位绑定量',[['单位','数量'],...(s.binding.by_unit||[]).map(u=>[u.name,u.count])]);
+  add('采集人统计',[['采集人','总数','有坐标'],...(s.users.by_user||[]).map(u=>[u.name,u.count,u.with_coord])]);
+  add('单位坐标缺口',[['单位','缺坐标数'],...(s.geo.by_unit||[]).map(u=>[u.name,(u.count||0)-(u.with_coord||0)])]);
+  XLSX.writeFile(wb,'统计分析_'+today()+'.xlsx');
+  toast('已导出统计');
+}
+
+/* ═══ ⑤ 后台管理 ═══ */
+async function renderAdmin(){
+  const el=document.getElementById('p-admin');
+  const users=await fetch('/api/users').then(r=>r.json()).catch(()=>null);
+  const stats=STATS||await fetch('/api/stats').then(r=>r.json()).catch(()=>null);
+  const cntMap={}; ((stats&&stats.users.by_user)||[]).forEach(u=>cntMap[u.name]=u.count);
+  curUsers=users||[];
+  const roleMap={admin:['超级管理员','r'],'dept_admin':['部门管理员','b'],operator:['操作员','o']};
+  el.innerHTML=`
+  <div class="crumb">后台管理 / 用户管理</div>
+  <div class="panel">
+    <div class="filt">
+      <input class="inp" id="usKw" placeholder="搜索账号 / 姓名" oninput="filterUsers()">
+      <select class="sel" id="usRole" onchange="filterUsers()">
+        <option value="">全部角色</option><option value="admin">超级管理员</option>
+        <option value="dept_admin">部门管理员</option><option value="operator">操作员</option></select>
+      ${hasP('users_manage')?'<button class="btn btn-p" onclick="editUser(null)">+ 新增用户</button>':''}
+    </div>
+    <table><tr><th>账号</th><th>姓名</th><th>角色</th><th>部门</th><th>采集数</th><th>操作</th></tr>
+    <tbody id="usBody">${(users||[]).map(u=>userRow(u,cntMap,roleMap)).join('')}</tbody></table>
+  </div>
+  <div class="note">📌 部门管理员只能管理本部门用户，且<b>不能创建部门管理员角色</b>（仅超级管理员可创建）。</div>`;
+}
+function userRow(u,cntMap,roleMap){
+  const rm=roleMap[u.role]||['未知','o'];
+  return `<tr data-un="${esc(u.username)}" data-role="${u.role}">
+    <td>${esc(u.username)}</td><td>${esc(u.display_name||'')}</td>
+    <td><span class="tg ${rm[1]}">${rm[0]}</span></td>
+    <td>${esc(u.dept_name||'—')}</td><td>${cntMap[u.username]||0}</td>
+    <td>${hasP('users_manage')?`<span class="lnk" onclick="openPerms('${esc(u.username)}')">权限</span>
+      ${u.username!=='admin'?`<span class="lnk d" onclick="delUser('${esc(u.username)}')">删除</span>`:''}`:''}</td></tr>`;
+}
+function filterUsers(){
+  const kw=(document.getElementById('usKw').value||'').toLowerCase();
+  const role=document.getElementById('usRole').value;
+  document.querySelectorAll('#usBody tr').forEach(tr=>{
+    const okN=!kw||tr.dataset.un.toLowerCase().includes(kw)||tr.textContent.toLowerCase().includes(kw);
+    const okR=!role||tr.dataset.role===role;
+    tr.style.display=(okN&&okR)?'':'none';
+  });
+}
+function openPerms(username){
+  const u=curUsers.find(x=>x.username===username); if(!u){toast('未找到用户');return;}
+  const p=u.perms||{};
+  const rows=Object.keys(PERM_LABEL).map(k=>{
+    const [t,d]=PERM_LABEL[k];
+    const on=p[k]===true||(p[k]===undefined&&ME.role==='admin');
+    return `<div class="prow"><div><div>${on?'✅':'⬜'} ${t}</div><div class="pdesc">${d}</div></div>
+      <span class="sw ${on?'on':''}" onclick="togglePerm(this,'${username}','${k}')"><i></i></span></div>`;
+  }).join('');
+  document.getElementById('mbox').innerHTML=`<div class="mttl">权限配置 · ${esc(username)}</div>
+    <div style="font-size:12px;color:#8c8c8c;margin-bottom:10px">角色：${u.role==='admin'?'超级管理员':u.role==='dept_admin'?'部门管理员':'操作员'}${u.dept_name?(' · '+esc(u.dept_name)):''}</div>
+    ${rows}<div class="mfoot"><button class="btn" onclick="closeM()">关闭</button></div>`;
+  document.getElementById('mask').classList.add('on');
+}
+async function togglePerm(el,username,key){
+  const on=!el.classList.contains('on');
+  el.classList.toggle('on',on);
+  const body={}; body[key]=on;
+  const r=await fetch('/api/users/'+encodeURIComponent(username)+'/perms',{method:'PUT',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(x=>x.json()).catch(()=>null);
+  if(!r||!r.success){toast('保存失败');el.classList.toggle('on',!on);return;}
+  const u=curUsers.find(x=>x.username===username); if(u){u.perms=u.perms||{};u.perms[key]=on;}
+  toast('已更新');
+}
+function editUser(u){
+  document.getElementById('mbox').innerHTML=`<div class="mttl">新增用户</div>
+    <div class="frow"><label>账号</label><input id="nuName"></div>
+    <div class="frow"><label>姓名</label><input id="nuDisp"></div>
+    <div class="frow"><label>密码</label><input id="nuPwd" type="password" placeholder="至少4位"></div>
+    <div class="frow"><label>角色</label><select id="nuRole">
+      ${ME.role==='admin'?'<option value="operator">操作员</option><option value="dept_admin">部门管理员</option>':'<option value="operator">操作员</option>'}
+    </select></div>
+    <div class="note">部门管理员只能创建<b>操作员</b>，且自动归属本部门。</div>
+    <div class="mfoot"><button class="btn" onclick="closeM()">取消</button>
+    <button class="btn btn-p" onclick="saveUser()">创建</button></div>`;
+  document.getElementById('mask').classList.add('on');
+}
+async function saveUser(){
+  const p={username:document.getElementById('nuName').value.trim(),
+    display_name:document.getElementById('nuDisp').value.trim(),
+    password:document.getElementById('nuPwd').value.trim(),
+    role:document.getElementById('nuRole').value};
+  if(!p.username||!p.password){toast('账号和密码必填');return;}
+  const r=await fetch('/api/users',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(p)}).then(x=>x.json()).catch(()=>null);
+  if(r&&r.success){toast('已创建');closeM();renderAdmin();}
+  else toast(r?(r.error||'创建失败'):'创建失败');
+}
+async function delUser(username){
+  if(!confirm(`确定删除用户「${username}」？`))return;
+  const r=await fetch('/api/users/'+encodeURIComponent(username),{method:'DELETE'})
+    .then(x=>x.json()).catch(()=>null);
+  toast(r&&(r.success||r.deleted)?'已删除':'删除失败');
+  renderAdmin();
+}
+
+/* 初始化：检查是否已登录 */
+(async function(){
+  try{
+    const r=await fetch('/api/me');
+    if(r.ok){
+      const d=await r.json(); const u=d.user||d||{};
+      if(u.username){
+        ME={username:u.username,displayName:u.displayName||u.username,role:u.role,
+            dept_id:u.dept_id,dept_name:u.dept_name||''};
+        PERMS=u.perms||{};
+        document.getElementById('loginPage').classList.add('hide');
+        document.getElementById('appPage').classList.remove('hide');
+        const roleMap={admin:'超级管理员','dept_admin':'部门管理员',operator:'操作员'};
+        document.getElementById('topDept').textContent=ME.dept_name?('🏢 '+ME.dept_name):'🌐 全部部门';
+        document.getElementById('topRole').textContent=roleMap[ME.role]||ME.role;
+        document.getElementById('topAvt').textContent=(ME.displayName||ME.username)[0];
+        if(PERMS.users_manage===true||ME.role==='admin'||ME.role==='dept_admin')
+          document.getElementById('miAdmin').classList.remove('hide');
+        go('home'); return;
+      }
+    }
+  }catch(e){}
+})();
+document.getElementById('lgPass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});
+</script>
+</body>
+</html>
