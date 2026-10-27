@@ -572,6 +572,15 @@ const DB = {
           if (r.longitude != null && r.longitude !== 0 && existing.longitude !== r.longitude) {
             existing.longitude = r.longitude; _changed = true;
           }
+          // 同步其余采集字段：重扫补坐标后，采集时间/信号/厂商等也会变，
+          // 不同步的话 App 上会一直显示陈旧值（例如"我刚扫过，时间却没变"）
+          if (r.ssid && r.ssid !== existing.ssid) { existing.ssid = r.ssid; _changed = true; }
+          if (r.signal != null && r.signal !== existing.signal) { existing.signal = r.signal; _changed = true; }
+          if (r.channel != null && r.channel !== existing.channel) { existing.channel = r.channel; _changed = true; }
+          if (r.encrypt_type && r.encrypt_type !== existing.encrypt_type) { existing.encrypt_type = r.encrypt_type; _changed = true; }
+          if (r.band && r.band !== existing.band) { existing.band = r.band; _changed = true; }
+          if (r.vendor && r.vendor !== existing.vendor) { existing.vendor = r.vendor; _changed = true; }
+          if (r.collect_time && r.collect_time !== existing.collect_time) { existing.collect_time = r.collect_time; _changed = true; }
           if (_changed) updateCnt++;
         }
       }
