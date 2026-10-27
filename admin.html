@@ -4,7 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>采灵 · 管理后台</title>
-<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<!-- XLSX 库本地化（原为国外CDN，加载慢），并以 defer 延后加载，不阻塞页面渲染 -->
+<script src="xlsx.full.min.js" defer></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;color:#1f2329;font-size:13px;background:#f0f2f5}
@@ -354,26 +355,35 @@ function pager(total,page,pages,tag){
 }
 // 导出全部记录（一次性导出所有，不受筛选/分页影响）
 async function exportWifiAll(){
+  const name='WiFi记录_全部_'+today()+'.xlsx';
+  const h=await pickSave(name);
+  if(h==='CANCEL'){toast('已取消');return;}
   toast('正在获取全部记录…');
   const d=await fetch('/api/wifi?page=1&page_size=100000').then(r=>r.json()).catch(()=>null);
   if(!d||!d.records){toast('获取失败');return;}
-  await saveXlsx([['SSID','BSSID','信号(dBm)','信道','加密方式','频段','厂商','关联单位','纬度','经度','采集人','采集时间'],
+  const rows=[['SSID','BSSID','信号(dBm)','信道','加密方式','频段','厂商','关联单位','纬度','经度','采集人','采集时间'],
     ...d.records.map(r=>[r.ssid,r.bssid,r.signal,r.channel,r.encrypt_type,r.band,r.vendor,r.unit_name,
-      r.latitude,r.longitude,r.created_by,r.collect_time])],
-    'WiFi记录','WiFi记录_全部_'+today());
+      r.latitude,r.longitude,r.created_by,r.collect_time])];
+  await dumpXlsx(mkBook(rows,'WiFi记录'),h,name,d.records.length);
 }
-// 下载导入模板
-function downloadWifiTemplate(){
+// 下载导入模板（同样支持选择保存位置）
+async function downloadWifiTemplate(){
+  const name='WiFi导入模板.xlsx';
+  const h=await pickSave(name);
+  if(h==='CANCEL')return;
   const ws=XLSX.utils.aoa_to_sheet([['SSID','BSSID','信号(dBm)','信道','加密方式','频段','厂商','关联单位','纬度','经度']]);
   ws['!cols']=[{wch:22},{wch:20},{wch:10},{wch:8},{wch:12},{wch:8},{wch:12},{wch:22},{wch:12},{wch:12}];
   const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'WiFi导入模板');
-  XLSX.writeFile(wb,'WiFi导入模板.xlsx'); toast('模板已下载');
+  await dumpXlsx(wb,h,name);
 }
-function downloadUnitTemplate(){
+async function downloadUnitTemplate(){
+  const name='单位导入模板.xlsx';
+  const h=await pickSave(name);
+  if(h==='CANCEL')return;
   const ws=XLSX.utils.aoa_to_sheet([['单位名称','统一社会信用代码','地址','纬度','经度','区县代码','区县名称','镇街代码','镇街名称','村社代码','村社名称']]);
   ws['!cols']=[{wch:24},{wch:22},{wch:30},{wch:12},{wch:12},{wch:12},{wch:12},{wch:14},{wch:12},{wch:14},{wch:14}];
   const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'单位导入模板');
-  XLSX.writeFile(wb,'单位导入模板.xlsx'); toast('模板已下载');
+  await dumpXlsx(wb,h,name);
 }
 // 导入 WiFi 记录
 async function importWifi(e){
@@ -436,15 +446,18 @@ async function importUnits(e){
 }
 // 导出全部单位
 async function exportUnits(){
+  const name='单位列表_全部_'+today()+'.xlsx';
+  const h=await pickSave(name);
+  if(h==='CANCEL'){toast('已取消');return;}
   toast('正在获取全部单位…');
   const d=await fetch('/api/units?page=1&page_size=100000').then(r=>r.json()).catch(()=>null);
   if(!d||!d.records){toast('获取失败');return;}
-  await saveXlsx([['单位名称','统一社会信用代码','地址','纬度','经度','区县代码','区县名称','镇街代码','镇街名称','村社代码','村社名称','关联WiFi','绑定状态'],
+  const rows=[['单位名称','统一社会信用代码','地址','纬度','经度','区县代码','区县名称','镇街代码','镇街名称','村社代码','村社名称','关联WiFi','绑定状态'],
     ...d.records.map(u=>[u.unit_name,u.credit_code,u.address,u.latitude,u.longitude,
       u.district_code,u.district_name,u.town_code,u.town_name,u.village_code,u.village_name,
       u.wifi_count||0,
-      u.wifi_status==='none'?'无WiFi':((u.wifi_count||0)>0?'已绑定':'未绑定')])],
-    '单位列表','单位列表_全部_'+today());
+      u.wifi_status==='none'?'无WiFi':((u.wifi_count||0)>0?'已绑定':'未绑定')])];
+  await dumpXlsx(mkBook(rows,'单位列表'),h,name,d.records.length);
 }
 async function delWifi(bssid){
   if(!confirm('确定删除该 WiFi 记录？此操作不可恢复。'))return;
@@ -454,6 +467,9 @@ async function delWifi(bssid){
   renderWifi();
 }
 async function exportWifi(){
+  const name='WiFi记录_'+today()+'.xlsx';
+  const h=await pickSave(name);   // 先选保存位置（保持在用户手势上下文中）
+  if(h==='CANCEL'){toast('已取消');return;}
   toast('正在导出…');
   const kw=document.getElementById('wfKw').value, band=document.getElementById('wfBand').value,
         bound=document.getElementById('wfBound').value, coord=document.getElementById('wfCoord').value,
@@ -463,40 +479,48 @@ async function exportWifi(){
   if(bound)q.set('bound',bound); if(coord)q.set('coord',coord); if(cb)q.set('created_by',cb);
   const d=await fetch('/api/wifi?'+q).then(r=>r.json()).catch(()=>null);
   if(!d||!d.records){toast('导出失败');return;}
-  saveXlsx([['SSID','BSSID','信号(dBm)','信道','加密方式','频段','厂商','关联单位','纬度','经度','采集人','采集时间'],
-    ...d.records.map(r=>[r.ssid,r.bssid,r.signal,r.channel,r.encrypt_type,r.band,r.vendor,r.unit_name,r.latitude,r.longitude,r.created_by,r.collect_time])],
-    'WiFi记录','WiFi记录_'+today());
+  const rows=[['SSID','BSSID','信号(dBm)','信道','加密方式','频段','厂商','关联单位','纬度','经度','采集人','采集时间'],
+    ...d.records.map(r=>[r.ssid,r.bssid,r.signal,r.channel,r.encrypt_type,r.band,r.vendor,r.unit_name,r.latitude,r.longitude,r.created_by,r.collect_time])];
+  await dumpXlsx(mkBook(rows,'WiFi记录'),h,name,d.records.length);
 }
 function today(){return new Date().toLocaleDateString('zh-CN').replace(/\//g,'-');}
 // 导出：优先弹出"选择保存位置"（Chrome/Edge 支持），不支持则回退浏览器默认下载
-async function saveXlsx(data,sheet,filename,silent){
-  const ws=XLSX.utils.aoa_to_sheet(data);
-  ws['!cols']=data[0].map(()=>({wch:17}));
-  const wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,ws,sheet);
-  const name=filename+'.xlsx';
-  const n=Math.max(0,data.length-1);
+/* ═══ 导出：先选保存位置 → 再取数据 → 最后写入 ═══
+   注意：showSaveFilePicker 必须在「用户点击」手势仍然有效时调用。
+   若先 await 网络请求再弹窗，浏览器可能判定手势已失效而不弹窗，
+   因此这里把「选位置」提到最前面。 */
+async function pickSave(name){
   try{
     if(window.showSaveFilePicker){
-      const buf=XLSX.write(wb,{bookType:'xlsx',type:'array'});
-      const handle=await window.showSaveFilePicker({
+      return await window.showSaveFilePicker({
         suggestedName:name,
         types:[{description:'Excel 工作簿',
           accept:{'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':['.xlsx']}}]
       });
-      const w=await handle.createWritable();
-      await w.write(buf);
-      await w.close();
-      toast('已保存到：'+handle.name+'（'+n+' 条）');
-      return true;
     }
   }catch(e){
-    if(e&&e.name==='AbortError'){toast('已取消导出');return false;}
-    console.warn('选择路径失败，回退默认下载',e);
+    if(e&&e.name==='AbortError') return 'CANCEL';   // 用户点了取消
+    console.warn('选择保存位置失败，回退默认下载',e);
   }
-  XLSX.writeFile(wb,name);
-  if(!silent) toast('已导出 '+n+' 条');
-  return true;
+  return null;   // 浏览器不支持 → 回退默认下载
+}
+function mkBook(data,sheet){
+  const ws=XLSX.utils.aoa_to_sheet(data);
+  ws['!cols']=data[0].map(()=>({wch:17}));
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,sheet);
+  return wb;
+}
+async function dumpXlsx(wb,handle,name,rows){
+  if(handle&&handle!=='CANCEL'){
+    const buf=XLSX.write(wb,{bookType:'xlsx',type:'array'});
+    const w=await handle.createWritable();
+    await w.write(buf); await w.close();
+    toast(`已保存到：${handle.name}${rows!=null?('（'+rows+' 条）'):''}`);
+  }else{
+    XLSX.writeFile(wb,name);
+    toast(`已下载到浏览器默认下载文件夹：${name}${rows!=null?('（'+rows+' 条）'):''}`);
+  }
 }
 
 /* ═══ ③ 单位维护 ═══ */
@@ -668,8 +692,11 @@ async function renderStats(){
     ${lackGeo.length?mkRank(lackGeo,lackGeo[0].count):'<div class="empty">🎉 全部已采集坐标</div>'}
   </div>`;
 }
-function exportStats(){
+async function exportStats(){
   const s=STATS; if(!s){toast('统计未加载');return;}
+  const name='统计分析_'+today()+'.xlsx';
+  const h=await pickSave(name);
+  if(h==='CANCEL')return;
   const wb=XLSX.utils.book_new();
   const add=(name,rows)=>{const ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=rows[0].map(()=>({wch:20}));
     XLSX.utils.book_append_sheet(wb,ws,name);};
@@ -678,8 +705,7 @@ function exportStats(){
   add('单位绑定量',[['单位','数量'],...(s.binding.by_unit||[]).map(u=>[u.name,u.count])]);
   add('采集人统计',[['采集人','总数','有坐标'],...(s.users.by_user||[]).map(u=>[u.name,u.count,u.with_coord])]);
   add('单位坐标缺口',[['单位','缺坐标数'],...(s.geo.by_unit||[]).map(u=>[u.name,(u.count||0)-(u.with_coord||0)])]);
-  XLSX.writeFile(wb,'统计分析_'+today()+'.xlsx');
-  toast('已导出统计');
+  await dumpXlsx(wb,h,name);
 }
 
 /* ═══ ⑤ 后台管理 ═══ */
