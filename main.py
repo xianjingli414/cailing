@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-采灵 v17.9 — Flask + WebView Bootstrap 方案（WifiBridge原生扫描版）
+采灵 v18.0 — Flask + WebView Bootstrap 方案（WifiBridge原生扫描版）
 
 核心改动：WiFi扫描通过Java原生WifiBridge（addJavascriptInterface）完成，
 不再依赖Python/jnius调用Android API（v10-v11均因此失败）。
@@ -31,7 +31,9 @@ except ImportError:
     pass
 
 # ── 服务器配置 ──
-SERVER_URL = os.environ.get("CAILING_SERVER", "http://121.4.28.216:8080")
+# 服务器地址：默认走 HTTPS（cailing.china-manwe.com，Let's Encrypt 证书 + 自动续期）
+# 注意：旧版 App 仍指向 http://121.4.28.216:8080，故服务端 8080 的 /api/ 需保留至全员升级完成
+SERVER_URL = os.environ.get("CAILING_SERVER", "https://cailing.china-manwe.com")
 PORT = int(os.environ.get("CAILING_PORT", "5000"))
 
 # ── 权限状态缓存 ──

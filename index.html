@@ -8,7 +8,6 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <title>采灵 - WiFi 采集管理</title>
-<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <style>
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   :root {
@@ -174,7 +173,7 @@
 
 <div class="status-bar">
   <span class="time" id="clock">15:30</span>
-  <span style="font-size:11px;color:var(--text3)">v17.9</span>
+  <span style="font-size:11px;color:var(--text3)">v18.0</span>
   <button class="user-badge" id="userBadge" onclick="switchPage('mine')">
     <div class="user-avatar" id="userAvatar">客</div>
     <span id="userLabel">游客</span>
@@ -185,6 +184,11 @@
 
 <!-- ══════════════ SCAN ══════════════ -->
 <div class="page active" id="page-scan">
+  <!-- 单位为采集目标时的提示条（可取消） -->
+  <div id="collectBanner" style="display:none;margin:8px 12px 0;padding:10px 12px;background:#e6f4ff;border:1px solid #91caff;border-radius:8px;align-items:center;gap:8px">
+    <span style="flex:1;font-size:13px;color:#0958d9;line-height:1.5">📡 正在为 <b id="collectUnitName"></b> 采集 WiFi<br><span style="font-size:11px;color:#5b7fa8">勾选下方 WiFi 后点「确认绑定」</span></span>
+    <button class="btn btn-sm btn-outline" style="flex-shrink:0" onclick="cancelCollectTarget()">取消</button>
+  </div>
   <div class="scan-hero">
     <div class="scan-ring" id="scanRing" onclick="startScan()"><div class="scan-spinner"></div>
       <svg viewBox="0 0 24 24"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="#fff"/></svg>
@@ -219,21 +223,13 @@
     <div class="filter-chip active" onclick="setRecordFilter('all',this)">全部</div>
     <div class="filter-chip" onclick="setRecordFilter('2.4G',this)">2.4G</div>
     <div class="filter-chip" onclick="setRecordFilter('5G',this)">5G</div>
-    <button class="btn btn-sm btn-primary" id="exportSelectedBtn" style="margin-left:auto;flex-shrink:0" onclick="exportSelectedRecords()"><svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:none;stroke:#fff;stroke-width:2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>导出所选</button>
   </div>
-  <div class="export-bar" id="recordExportBar">
-    <span class="export-count" id="exportCountLabel">可选择记录后导出</span>
-    <button class="btn btn-sm btn-outline" onclick="downloadWifiTemplate()">下载模板</button>
-    <button class="btn btn-sm btn-outline" onclick="triggerWifiImport()">导入</button>
-    <button class="btn btn-sm btn-outline" onclick="toggleRecordSelectAll()">全选</button>
-  </div>
-  <input type="file" id="wifiFileInput" accept=".xlsx" onchange="importWifiXlsx(event)" style="display:none">
   <div class="card card-last" id="recordList"><div class="empty"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg><p>暂无记录，去扫描后保存</p></div></div>
 </div>
 
 <!-- ══════════════ UNITS ══════════════ -->
 <div class="page" id="page-units">
-  <div class="page-header"><div><p class="page-title">单位管理</p><p class="page-subtitle" id="unitsSubtitle">共 0 个单位</p></div><div style="display:flex;gap:6px"><button class="btn btn-sm btn-outline" onclick="downloadUnitTemplate()">下载模板</button><button class="btn btn-sm btn-outline" id="unitImportBtn" onclick="triggerUnitImport()" style="display:none">导入</button></div></div>
+  <div class="page-header"><div><p class="page-title">单位管理</p><p class="page-subtitle" id="unitsSubtitle">共 0 个单位</p></div></div>
   <div class="search-wrap"><div class="search-inner"><svg class="search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input class="search-input" id="unitSearch" placeholder="搜索单位名称或信用代码..." oninput="debouncedRenderUnits()"></div></div>
   <div class="filter-row" style="padding-top:6px" id="unitBindRow">
     <div class="filter-chip active" onclick="setUnitFilter('bind','all',this)">全部绑定</div>
@@ -247,7 +243,6 @@
   </div>
   <div class="card card-last" id="unitList" style="margin-top:8px"><div class="empty"><svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg><p>暂无单位数据</p></div></div>
   <button class="fab" id="unitFab" onclick="showAddUnit()"><svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
-  <input type="file" id="unitFileInput" accept=".xlsx" onchange="importUnitsXlsx(event)" style="display:none">
 </div>
 
 <!-- ══════════════ STATS（仅网页端，App端隐藏）══════════════ -->
@@ -275,6 +270,14 @@
     <div class="section-title">③ 各用户采集数量</div>
     <div id="statsUsers"></div>
   </div>
+</div>
+
+<!-- ══════════════ 单位详情 ══════════════ -->
+<div class="page" id="page-unitdetail">
+  <div class="page-header"><div><p class="page-title" id="udName">单位详情</p><p class="page-subtitle" id="udSubtitle">—</p></div><button class="btn btn-sm btn-outline" onclick="switchPage('units')">返回列表</button></div>
+  <div class="card" id="udInfo"></div>
+  <div class="card card-last" id="udWifiList" style="margin-top:8px"></div>
+  <button class="fab" id="udFab" onclick="startCollectForUnit(_currentUnitId)"><svg viewBox="0 0 24 24"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="currentColor"/></svg></button>
 </div>
 
 <!-- ══════════════ MINE ══════════════ -->
@@ -655,12 +658,14 @@ let currentPage = 'scan';
 function switchPage(p) {
   if (!isAdmin() && p !== 'mine' && DB.moduleVisibility[p] === false) { showToast('该功能模块已被管理员禁用'); return; }
   document.getElementById('page-' + currentPage).classList.remove('active');
-  document.getElementById('nav-' + currentPage).classList.remove('active');
+  // 单位详情页等子页面没有对应导航项，需判空避免 null 报错
+  const _prevNav = document.getElementById('nav-' + currentPage); if (_prevNav) _prevNav.classList.remove('active');
   currentPage = p;
   document.getElementById('page-' + p).classList.add('active');
-  document.getElementById('nav-' + p).classList.add('active');
+  const _nav = document.getElementById('nav-' + p); if (_nav) _nav.classList.add('active');
   if (p === 'records') { DB.syncFromServer().then(()=>renderRecords()).catch(()=>{}); renderRecords(); }
   if (p === 'units') { DB.syncFromServer().then(()=>renderUnits()).catch(()=>{}); renderUnits(); }
+  if (p === 'unitdetail') { updateCollectBanner(); renderUnitDetail(); }
   if (p === 'mine') renderMine();
   if (p === 'stats') renderStats();
   document.getElementById('page-' + p).scrollTop = 0;
@@ -1000,11 +1005,18 @@ function updateBatchBar() {
   const bar = document.getElementById('batchBar'), onScan = currentPage==='scan';
   if (onScan && selectedBssids.size > 0) {
     bar.classList.add('visible'); document.getElementById('batchCount').textContent = selectedBssids.size;
-    document.getElementById('batchBindBtn').style.display = hasPerm('scan_bind') ? '' : 'none';
+    const _bb = document.getElementById('batchBindBtn');
+    if (_bb) {
+      _bb.style.display = hasPerm('scan_bind') ? '' : 'none';
+      if (_bindTargetUnitId != null) {
+        const _tu = DB.units.find(x => x.id === _bindTargetUnitId);
+        _bb.textContent = '确认绑定' + (_tu ? ('到 ' + _tu.unit_name) : '');
+      } else { _bb.textContent = '绑定单位'; }
+    }
   } else { bar.classList.remove('visible'); }
 }
 function batchSave(){if(currentPage!=='scan'||selectedBssids.size===0)return;let saved=0,skip=0;[...selectedBssids].forEach(bssid=>{const r=scanResultMap[bssid];if(r){if(DB.addWifi({...r})){saved++;}else{skip++;}}});updateStats();renderScanList();showToast('已保存/更新 '+saved+' 条'+(skip>0?'（'+skip+' 条已存在且无新坐标）':''));}
-function batchBind(){if(currentPage!=='scan'||selectedBssids.size===0||!hasPerm('scan_bind'))return;[...selectedBssids].forEach(bssid=>{const r=scanResultMap[bssid];if(r&&!DB.wifiRecords.find(x=>x.bssid===bssid))DB.addWifi({...r});});updateStats();document.getElementById('bindTitle').textContent='绑定单位';document.getElementById('bindSubtitle').textContent='将 '+selectedBssids.size+' 条 WiFi 统一绑定到：';document.getElementById('bindUnitSearch').value='';renderBindUnitList();openModal('bindUnitModal');}
+function batchBind(){if(currentPage!=='scan'||selectedBssids.size===0||!hasPerm('scan_bind'))return;[...selectedBssids].forEach(bssid=>{const r=scanResultMap[bssid];if(r&&!DB.wifiRecords.find(x=>x.bssid===bssid))DB.addWifi({...r});});updateStats();if(_bindTargetUnitId!=null){doBind(_bindTargetUnitId);return;}document.getElementById('bindTitle').textContent='绑定单位';document.getElementById('bindSubtitle').textContent='将 '+selectedBssids.size+' 条 WiFi 统一绑定到：';document.getElementById('bindUnitSearch').value='';renderBindUnitList();openModal('bindUnitModal');}
 function doBind(unitId) {
   const bssids=[...selectedBssids];
   const u=DB.units.find(x=>x.id===unitId);
@@ -1113,11 +1125,9 @@ function renderRecords() {
   const q=document.getElementById('recordSearch').value.toLowerCase();
   let rows=boundRecords.filter(r=>{if(q&&!r.ssid.toLowerCase().includes(q)&&!r.bssid.toLowerCase().includes(q)&&!(r.unit_name&&r.unit_name.toLowerCase().includes(q))) return false; if(recordFilter==='2.4G'&&r.band!=='2.4G') return false; if(recordFilter==='5G'&&r.band!=='5G') return false; return true; });
   const list=document.getElementById('recordList');
-  if(!rows.length){list.innerHTML='<div class="empty"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg><p>暂无匹配记录</p></div>';document.getElementById('exportCountLabel').textContent='可选择记录后导出';return; }
-  _lastRecordCount=rows.length;document.getElementById('exportCountLabel').textContent='共 '+rows.length+' 条 · 选中 '+selectedRecordIds.size;
-  document.getElementById('recordExportBar').style.display = hasPerm('records_export') ? '' : 'none';
+  if(!rows.length){list.innerHTML='<div class="empty"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg><p>暂无匹配记录</p></div>';return; }
+  _lastRecordCount=rows.length;
   document.getElementById('recordFilterRow').style.display = hasPerm('records_view') ? '' : 'none';
-  const _esb=document.getElementById('exportSelectedBtn'); if(_esb) _esb.style.display = hasPerm('records_export') ? '' : 'none';
   // [性能优化] 分页渲染：首屏只渲染前50条，避免数百条记录一次性插入DOM造成卡顿
   const _PAGE=50, _p=_recordPage||1;
   const shown = rows.length > _p*_PAGE ? rows.slice(0,_p*_PAGE) : rows;
@@ -1152,9 +1162,7 @@ function openRecordDetail(id){
     dRowMap(r.latitude, r.longitude, r.ssid);
   openModal('wifiDetailModal');
 }
-function toggleRecordSelectAll(){const q=document.getElementById('recordSearch').value.toLowerCase();let rows=DB.wifiRecords.filter(r=>{if(!r.unit_name)return false;if(q&&!r.ssid.toLowerCase().includes(q)&&!r.bssid.toLowerCase().includes(q)&&!(r.unit_name&&r.unit_name.toLowerCase().includes(q))) return false;if(recordFilter==='2.4G'&&r.band!=='2.4G') return false;if(recordFilter==='5G'&&r.band!=='5G') return false;return true;});if(selectedRecordIds.size===rows.length) selectedRecordIds.clear();else rows.forEach(r=>selectedRecordIds.add(r.id));renderRecords();}
 function deleteRecord(id){if(!hasPerm('records_delete')){showToast('删除记录功能已被管理员限制');return;}if(!confirm('确定删除该条WiFi记录？删除后不可恢复。'))return;const r=DB.wifiRecords.find(x=>x.id===id);selectedRecordIds.delete(id);DB.deleteWifi(id);updateStats();renderScanList();renderRecords();showToast('已删除');if(r)fetch('/api/wifi/bssid/'+r.bssid,{method:'DELETE'}).catch(()=>{});}
-function exportSelectedRecords(){if(!hasPerm('records_export')){showToast('导出功能已被管理员限制');return;}if(!selectedRecordIds.size){showToast('请先勾选要导出的记录');return;}const rows=DB.wifiRecords.filter(r=>selectedRecordIds.has(r.id));if(!rows.length){showToast('未找到选中记录');return;}const headers=['ID','SSID','BSSID','信号(dBm)','信道','加密方式','频段','厂商','采集时间','关联单位','纬度','经度'];const keys=['id','ssid','bssid','signal','channel','encrypt_type','band','vendor','collect_time','unit_name','latitude','longitude'];const data=[headers,...rows.map(r=>keys.map(k=>String(r[k]||'')))];const ws=XLSX.utils.aoa_to_sheet(data);ws['!cols']=[{wch:6},{wch:24},{wch:20},{wch:10},{wch:6},{wch:12},{wch:6},{wch:12},{wch:20},{wch:16},{wch:12},{wch:12}];const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'WiFi记录');saveXlsxFile(wb,'wifi_export_'+new Date().toLocaleDateString('zh-CN').replace(/\//g,'-')+'.xlsx');rows.forEach(r=>r.exported=true);DB.saveWifi();showToast('已导出 '+rows.length+' 条记录');renderRecords();}
 
 // ══════════════════════ UNITS ══════════════════════
 let editingUnitId=null;
@@ -1201,9 +1209,8 @@ function renderUnits(){document.getElementById('unitsSubtitle').textContent='共
   // Check permissions for UI
   const showEdit = hasPerm('units_view'), showDel = hasPerm('units_delete');
   document.getElementById('unitFab').style.display = hasPerm('units_view') ? '' : 'none';
-  document.getElementById('unitImportBtn').style.display = hasPerm('units_import') ? '' : 'none';
   if(!rows.length){list.innerHTML='<div class="empty"><svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg><p>暂无单位数据</p></div>';return;}
-  let html='';for(const u of rows){const cnt=DB.wifiRecords.filter(r=>r.unit_id===u.id).length;html+='<div class="unit-item"><div class="unit-avatar">'+(u.unit_name[0]||'?')+'</div><div class="unit-body"><div class="unit-name">'+u.unit_name+'</div><div class="unit-code">'+u.credit_code+'</div><div class="unit-addr">'+u.address+'</div><div style="margin-top:4px"><span class="tag tag-blue">关联 '+cnt+' 个 WiFi</span>'+(hasUnitCoord(u)?'<span class="tag tag-green">有经纬度</span>':'<span class="tag tag-orange">无经纬度</span>')+'</div></div><div class="unit-right">'+(showEdit?'<button class="btn btn-sm btn-outline" onclick="editUnit('+u.id+')">编辑</button>':'')+(showDel?'<button class="btn btn-sm" style="background:#fff2f0;color:var(--danger)" onclick="deleteUnit('+u.id+')">删除</button>':'')+'</div></div>';}
+  let html='';for(const u of rows){const cnt=DB.wifiRecords.filter(r=>r.unit_id===u.id).length;html+='<div class="unit-item"><div class="unit-avatar" onclick="openUnitDetail('+u.id+')">'+(u.unit_name[0]||'?')+'</div><div class="unit-body" style="cursor:pointer" onclick="openUnitDetail('+u.id+')"><div class="unit-name">'+u.unit_name+'</div><div class="unit-code">'+u.credit_code+'</div><div class="unit-addr">'+u.address+'</div><div style="margin-top:4px"><span class="tag tag-blue">关联 '+cnt+' 个 WiFi</span>'+(hasUnitCoord(u)?'<span class="tag tag-green">有经纬度</span>':'<span class="tag tag-orange">无经纬度</span>')+'</div></div><div class="unit-right">'+(showDel?'<button class="btn btn-sm" style="background:#fff2f0;color:var(--danger)" onclick="deleteUnit('+u.id+')">删除</button>':'')+(hasPerm('scan_bind')?'<button class="btn btn-sm btn-primary" style="margin-left:4px" onclick="startCollectForUnit('+u.id+')">采集</button>':'')+'</div></div>';}
   list.innerHTML=html;
 }
 function showAddUnit(){if(!hasPerm('units_view')){showToast('添加单位功能已被管理员限制');return;}editingUnitId=null;document.getElementById('unitModalTitle').textContent='添加单位';['unitName','unitCode','unitAddr','unitLat','unitLng'].forEach(id=>document.getElementById(id).value='');openModal('addUnitModal');}
@@ -1216,14 +1223,125 @@ if(latRaw!==''&&isNaN(lat)){showToast('纬度必须是数字');return;}
 if(lngRaw!==''&&isNaN(lng)){showToast('经度必须是数字');return;}
 if(!name){showToast('请输入单位名称');return;}if(!code){showToast('请输入信用代码');return;}if(!addr){showToast('请输入地址');return;}
 const payload={unit_name:name,credit_code:code,address:addr,latitude:lat,longitude:lng};
-if(editingUnitId){const oldUnit=DB.units.find(x=>x.id===editingUnitId);DB.updateUnit(editingUnitId,payload);showToast('已更新');if(oldUnit)fetch('/api/units/name/'+encodeURIComponent(oldUnit.unit_name),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).catch(()=>{});}else{if(DB.addUnit(payload)){showToast('添加成功');fetch('/api/units',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).catch(()=>{});}else{showToast('该单位名称已存在');}}closeModal('addUnitModal');updateStats();renderUnits();}
+// 保留原有「无 WiFi」标记，避免编辑保存时被服务端默认值重置为 unbound
+const _curUnit=editingUnitId?DB.units.find(x=>x.id===editingUnitId):null;
+payload.wifi_status=(_curUnit&&_curUnit.wifi_status)?_curUnit.wifi_status:'unbound';
+if(editingUnitId){const oldUnit=DB.units.find(x=>x.id===editingUnitId);DB.updateUnit(editingUnitId,payload);showToast('已更新');if(oldUnit)fetch('/api/units/name/'+encodeURIComponent(oldUnit.unit_name),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).catch(()=>{});}else{if(DB.addUnit(payload)){showToast('添加成功');fetch('/api/units',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).catch(()=>{});}else{showToast('该单位名称已存在');}}closeModal('addUnitModal');updateStats();renderUnits();if(currentPage==='unitdetail')renderUnitDetail();}
 function deleteUnit(id){if(!hasPerm('units_delete')){showToast('删除单位功能已被管理员限制');return;}const boundCount=DB.wifiRecords.filter(r=>r.unit_id===id).length;if(!confirm('确定删除该单位？'+(boundCount>0?'该单位下已绑定的 '+boundCount+' 条WiFi记录将被一并删除，':'')+'此操作不可恢复。'))return;const u=DB.units.find(x=>x.id===id);DB.units=DB.units.filter(x=>x.id!==id);DB.wifiRecords=DB.wifiRecords.filter(r=>r.unit_id!==id);DB.saveUnits();DB.saveWifi();updateStats();renderUnits();renderRecords();showToast('已删除');if(u){fetch('/api/units/name/'+encodeURIComponent(u.unit_name),{method:'DELETE'}).then(r=>r.json()).then(data=>{if(data.deleted_wifi>0)showToast('已同步删除 '+data.deleted_wifi+' 条WiFi记录');}).catch(()=>{});}}
-function triggerUnitImport(){if(!hasPerm('units_import')){showToast('导入功能已被管理员限制');return;}document.getElementById('unitFileInput').click();}
-function importUnitsXlsx(e){const file=e.target.files[0];e.target.value='';if(!file)return;const reader=new FileReader();reader.onload=function(ev){try{const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});const ws=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(ws,{header:1});if(rows.length<2){showToast('xlsx 文件格式不正确或无数据');return;}let cnt=0,skip=0;for(let i=1;i<rows.length;i++){const cols=rows[i];if(!cols||cols.length<3)continue;const name=String(cols[0]||'').trim(),code=String(cols[1]||'').trim(),addr=String(cols[2]||'').trim();if(!name)continue;if(DB.addUnit({unit_name:name,credit_code:code,address:addr})){cnt++;fetch('/api/units',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({unit_name:name,credit_code:code,address:addr})}).catch(()=>{});}else{skip++;}}updateStats();renderUnits();showToast('导入 '+cnt+' 条'+(skip>0?'（'+skip+' 条重复已跳过）':''));}catch(err){showToast('xlsx 解析失败: '+err.message);}};reader.readAsArrayBuffer(file);}
-function downloadUnitTemplate(){const headers=[['单位名称','统一社会信用代码','地址']];const ws=XLSX.utils.aoa_to_sheet(headers);ws['!cols']=[{wch:24},{wch:24},{wch:30}];const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'单位导入模板');saveXlsxFile(wb,'单位导入模板.xlsx');}
-function downloadWifiTemplate(){const headers=[['ID','SSID','BSSID','信号(dBm)','信道','加密方式','频段','厂商','采集时间','关联单位','纬度','经度']];const ws=XLSX.utils.aoa_to_sheet(headers);ws['!cols']=[{wch:6},{wch:24},{wch:20},{wch:10},{wch:6},{wch:12},{wch:6},{wch:12},{wch:20},{wch:16},{wch:12},{wch:12}];const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'WiFi导入模板');saveXlsxFile(wb,'WiFi导入模板.xlsx');}
-function triggerWifiImport(){if(!hasPerm('records_export')){showToast('导入功能已被管理员限制');return;}document.getElementById('wifiFileInput').click();}
-function importWifiXlsx(e){const file=e.target.files[0];e.target.value='';if(!file)return;const reader=new FileReader();reader.onload=function(ev){try{const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});const ws=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(ws,{header:1});if(rows.length<2){showToast('xlsx 文件格式不正确或无数据');return;}const headers=['ID','SSID','BSSID','信号(dBm)','信道','加密方式','频段','厂商','采集时间','关联单位','纬度','经度'];let cnt=0,skip=0,bound=0,noUnit=0;for(let i=1;i<rows.length;i++){const cols=rows[i];if(!cols||cols.length<3)continue;const bssid=String(cols[2]||'').trim().toUpperCase();if(!bssid||bssid.length<6)continue;if(DB.wifiRecords.find(x=>x.bssid===bssid)){skip++;continue;}const ssid=String(cols[1]||'').trim();const signal=parseInt(cols[3])||0;const channel=parseInt(cols[4])||0;const encrypt_type=String(cols[5]||'').trim()||'未知';const band=String(cols[6]||'').trim()||'2.4G';const vendor=String(cols[7]||'').trim()||'未知';const collect_time=String(cols[8]||'').trim()||new Date().toLocaleString('zh-CN');const unit_name_raw=String(cols[9]||'').trim();const latitude=cols[10]?parseFloat(cols[10]):null;const longitude=cols[11]?parseFloat(cols[11]):null;let unit_id=null,unit_name='';if(unit_name_raw){const u=DB.units.find(x=>x.unit_name===unit_name_raw);if(u){unit_id=u.id;unit_name=u.unit_name;bound++;}else{noUnit++;}}const record={ssid,bssid,signal,channel,encrypt_type,band,vendor,collect_time,unit_id,unit_name,latitude,longitude,exported:false};DB.addWifi(record);cnt++;}DB.saveWifi();updateStats();renderRecords();let msg='导入 '+cnt+' 条记录';if(skip>0)msg+='，跳过 '+skip+' 条重复';if(bound>0)msg+='，自动绑定 '+bound+' 条';if(noUnit>0)msg+='，'+noUnit+' 条单位未匹配';showToast(msg);}catch(err){showToast('xlsx 解析失败: '+err.message);}};reader.readAsArrayBuffer(file);}
+
+// ══════════════════ 单位详情 + 采集（App 端）══════════════════
+let _currentUnitId=null, _bindTargetUnitId=null;
+
+function openUnitDetail(id){
+  if(!hasPerm('units_view')){showToast('查看单位功能已被管理员限制');return;}
+  _currentUnitId=id; switchPage('unitdetail'); renderUnitDetail();
+}
+
+function renderUnitDetail(){
+  const u=DB.units.find(x=>x.id===_currentUnitId);
+  if(!u){showToast('单位不存在');switchPage('units');return;}
+  const wifiList=DB.wifiRecords.filter(r=>r.unit_id===u.id);
+  document.getElementById('udName').textContent=u.unit_name;
+  document.getElementById('udSubtitle').textContent='信用代码 '+(u.credit_code||'—');
+  const hasCoord=(u.latitude!=null&&u.latitude!==''&&u.longitude!=null&&u.longitude!=='');
+  const coordHtml=hasCoord
+    ? '<span class="tag tag-green" style="cursor:pointer" onclick="showUnitOnMap()">📍 '+Number(u.latitude).toFixed(6)+', '+Number(u.longitude).toFixed(6)+' 查看地图</span>'
+    : '<span class="tag tag-orange">无经纬度</span>';
+  document.getElementById('udInfo').innerHTML=
+    '<div style="padding:12px">'+
+      '<div class="detail-row"><div class="detail-label">单位名称</div><div class="detail-value">'+escHtml(u.unit_name)+'</div></div>'+
+      '<div class="detail-row"><div class="detail-label">信用代码</div><div class="detail-value">'+escHtml(u.credit_code||'—')+'</div></div>'+
+      '<div class="detail-row"><div class="detail-label">地址</div><div class="detail-value">'+escHtml(u.address||'—')+'</div></div>'+
+      '<div class="detail-row"><div class="detail-label">所属镇街</div><div class="detail-value">'+escHtml((u.town_name||'—')+(u.village_name?(' / '+u.village_name):''))+'</div></div>'+
+      '<div class="detail-row"><div class="detail-label">经纬度</div><div class="detail-value">'+coordHtml+'</div></div>'+
+      '<div class="detail-row"><div class="detail-label">已绑定 WiFi</div><div class="detail-value">'+wifiList.length+' 条</div></div>'+
+      '<div style="margin-top:10px;padding-top:10px;border-top:1px solid #f0f0f0">'+
+        '<label style="display:flex;align-items:center;gap:8px;font-size:13px">'+
+        '<input type="checkbox" id="udNoWifi" '+(u.wifi_status==='none'?'checked':'')+' onchange="toggleUnitNoWifi(this.checked)">'+
+        '<span>该单位确实没有 WiFi</span></label>'+
+        '<div style="font-size:11px;color:#999;margin-top:4px">勾选后统计中标记为「无 WiFi」，与「尚未采集」区分开</div>'+
+      '</div>'+
+      '<div style="margin-top:12px;display:flex;gap:8px">'+
+        '<button class="btn btn-sm btn-outline" style="flex:1" onclick="editUnit('+u.id+')">编辑资料</button>'+
+        '<button class="btn btn-sm btn-primary" style="flex:1" onclick="startCollectForUnit('+u.id+')">采集 WiFi</button>'+
+      '</div>'+
+    '</div>';
+  const el=document.getElementById('udWifiList');
+  if(!wifiList.length){el.innerHTML='<div class="empty"><p>该单位尚未绑定 WiFi</p></div>';return;}
+  let h='<div style="padding:10px 12px;font-size:13px;font-weight:600;border-bottom:1px solid #f0f0f0">已绑定 WiFi（'+wifiList.length+'）</div>';
+  wifiList.forEach(r=>{
+    h+='<div style="padding:10px 12px;border-bottom:1px solid #f5f5f5;display:flex;align-items:center;gap:8px">'+
+       '<div style="flex:1;min-width:0" onclick="openRecordDetail('+r.id+')">'+
+         '<div style="font-size:14px;font-weight:500">'+escHtml(r.ssid||'<隐藏网络>')+'</div>'+
+         '<div style="font-size:11px;color:#999">'+r.bssid+' · '+r.signal+' dBm'+(r.latitude?' · 📍'+Number(r.latitude).toFixed(5):'')+'</div>'+
+       '</div>'+
+       '<button class="btn btn-sm" style="background:#fff2f0;color:var(--danger,#e5432f);flex-shrink:0" onclick="unbindWifi(\''+r.bssid+'\')">解绑</button>'+
+       '</div>';
+  });
+  el.innerHTML=h;
+}
+
+function escHtml(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+function showUnitOnMap(){
+  const u=DB.units.find(x=>x.id===_currentUnitId);
+  if(!u){return;}
+  openAmap(u.latitude,u.longitude,u.unit_name);
+}
+
+function toggleUnitNoWifi(checked){
+  const u=DB.units.find(x=>x.id===_currentUnitId);
+  if(!u)return;
+  u.wifi_status=checked?'none':'unbound';
+  DB.saveUnits();
+  fetch('/api/units/'+u.id,{method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({unit_name:u.unit_name,wifi_status:u.wifi_status})}).catch(()=>{});
+  showToast(checked?'已标记为「无 WiFi」':'已取消「无 WiFi」标记');
+  updateStats(); renderUnitDetail();
+}
+
+function unbindWifi(bssid){
+  if(!hasPerm('scan_bind')){showToast('绑定功能已被管理员限制');return;}
+  const r=DB.wifiRecords.find(x=>x.bssid===bssid);
+  if(!r)return;
+  if(!confirm('确定解除该 WiFi 与单位的绑定？\n解绑后它会出现在未绑定列表中，记录本身保留。'))return;
+  r.unit_id=null; r.unit_name=''; DB.saveWifi();
+  // 服务端按 bssid 解绑（不传 unit_id/unit_name 即置 NULL）
+  fetch('/api/wifi/bulk-bind',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({bssids:[bssid]})}).catch(()=>{});
+  updateStats(); renderUnitDetail(); renderRecords(); showToast('已解绑');
+}
+
+// ── 采集模式：以某单位为目标采集 WiFi ──
+function startCollectForUnit(id){
+  if(!hasPerm('scan_bind')){showToast('采集绑定功能已被管理员限制');return;}
+  const u=DB.units.find(x=>x.id===id);
+  if(!u){showToast('单位不存在');return;}
+  _bindTargetUnitId=id;
+  switchPage('scan');
+  updateCollectBanner();
+  if(typeof startScan==='function') startScan();
+}
+
+function cancelCollectTarget(){
+  _bindTargetUnitId=null;
+  updateCollectBanner();
+  updateBatchBar();
+  showToast('已退出采集模式');
+}
+
+function updateCollectBanner(){
+  const bar=document.getElementById('collectBanner');
+  if(!bar)return;
+  if(_bindTargetUnitId){
+    const u=DB.units.find(x=>x.id===_bindTargetUnitId);
+    document.getElementById('collectUnitName').textContent=(u?u.unit_name:'');
+    bar.style.display='flex';
+  }else{
+    bar.style.display='none';
+  }
+}
+
 function escapeHtml(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
 function renderBindUnitList(keyword){const kw=(keyword||'').toLowerCase();const el=document.getElementById('bindUnitList');let rows=DB.units;if(kw){rows=rows.filter(u=>u.unit_name.toLowerCase().includes(kw)||u.credit_code.toLowerCase().includes(kw));}if(!rows.length){el.innerHTML='<div style="text-align:center;padding:30px;color:var(--text3);font-size:14px">'+(kw?'未找到匹配的单位':'暂无单位，请先在「单位」页面添加')+'</div>';return;}el.innerHTML=rows.map(u=>'<div class="unit-opt" onclick="doBind('+JSON.stringify(u.id)+')"><div class="unit-opt-avatar">'+(u.unit_name[0]||'?')+'</div><div class="unit-opt-body"><div class="unit-opt-name">'+escapeHtml(u.unit_name)+'</div><div class="unit-opt-code">'+escapeHtml(u.credit_code)+'</div></div><svg viewBox="0 0 24 24" style="width:16px;height:16px;fill:none;stroke:var(--text3);stroke-width:2"><polyline points="9 18 15 12 9 6"/></svg></div>').join('');}
 
@@ -1548,6 +1666,7 @@ const isApp = !!(window.WifiBridge || (typeof NativeBridge !== 'undefined'));
 
 // 通用XLSX保存函数：App环境通过WifiBridge.saveFile保存到手机Downloads，浏览器环境用XLSX.writeFile
 function saveXlsxFile(wb, filename) {
+  if (typeof XLSX === "undefined") { showToast("导出已迁移到网页端后台，请在电脑上操作"); return; }
   if (isApp && window.WifiBridge && typeof window.WifiBridge.saveFile === 'function') {
     try {
       // 生成Base64数据，通过WifiBridge保存到手机
@@ -1657,6 +1776,7 @@ function exportStats(){
   rows.push(['经纬度采集','采集率(%)', d.geo.rate]);
   (d.geo.by_unit||[]).forEach(function(r){ rows.push(['经纬度-单位明细', r.name, r.count+' 条 / 有坐标 '+r.with_coord]); });
   (d.users.by_user||[]).forEach(function(r){ rows.push(['用户采集量', r.name, r.count+' 条 / 有坐标 '+r.with_coord]); });
+  if (typeof XLSX === 'undefined') { showToast('导出已迁移到网页端后台，请在电脑上操作'); return; }
   const ws = XLSX.utils.aoa_to_sheet(rows);
   ws['!cols'] = [{wch:16},{wch:36},{wch:20}];
   const wb = XLSX.utils.book_new();
@@ -1692,7 +1812,7 @@ window.addEventListener('orientationchange', () => setTimeout(setAppHeight, 200)
 
 // Make saveUserPerms globally accessible for onclick
 window.saveUserPerms = saveUserPerms;
-async function renderDeptList(){try{const resp=await fetch('/api/departments');const data=await resp.json();const depts=data.departments||[];const el=document.getElementById('deptList');if(!depts.length){el.innerHTML='<div style="text-align:center;padding:20px;color:var(--text3)">暂无部门</div>';return;}el.innerHTML=depts.map(d=>'<div class="unit-item"><div class="unit-avatar">部</div><div class="unit-body"><div class="unit-name">'+escapeHtml(d.dept_name)+'</div><div style="font-size:12px;color:var(--text3)">'+(d.user_count||0)+' 名用户</div></div><button class="btn btn-xs" style="background:#fff2f0;color:var(--danger)" onclick="deleteDept('+d.id+')">删除</button></div>').join('');}catch(e){console.warn('加载部门失败:',e);}}
+async function renderDeptList(){try{const resp=await fetch('/api/departments');const data=await resp.json();const depts=data.departments||[];const el=document.getElementById('deptList');if(!depts.length){el.innerHTML='<div style="text-align:center;padding:20px;color:var(--text3)">暂无部门</div>';return;}el.innerHTML=depts.map(d=>'<div class="unit-item"><div class="unit-avatar" onclick="openUnitDetail('+u.id+')">部</div><div class="unit-body" style="cursor:pointer" onclick="openUnitDetail('+u.id+')"><div class="unit-name">'+escapeHtml(d.dept_name)+'</div><div style="font-size:12px;color:var(--text3)">'+(d.user_count||0)+' 名用户</div></div><button class="btn btn-xs" style="background:#fff2f0;color:var(--danger)" onclick="deleteDept('+d.id+')">删除</button></div>').join('');}catch(e){console.warn('加载部门失败:',e);}}
 function showAddDept(){const name=prompt('请输入部门名称：');if(!name||!name.trim())return;fetch('/api/departments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dept_name:name.trim()})}).then(r=>r.json()).then(data=>{if(data.success){showToast('部门已创建');renderDeptList();}else showToast(data.error||'创建失败');}).catch(()=>showToast('创建失败'));}
 function deleteDept(id){if(!confirm('确定删除该部门？需先移除该部门下的所有用户。'))return;fetch('/api/departments/'+id,{method:'DELETE'}).then(r=>r.json()).then(data=>{if(data.success){showToast('部门已删除');renderDeptList();}else showToast(data.error||'删除失败');}).catch(()=>showToast('删除失败'));}
 
