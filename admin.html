@@ -305,7 +305,11 @@ async function renderWifi(){
         <option value="">全部坐标</option><option value="has" ${coord==='has'?'selected':''}>有经纬度</option><option value="none" ${coord==='none'?'selected':''}>无经纬度</option></select>
       <select class="sel" id="wfUser" onchange="wifiPage=1;renderWifi()"><option value="">全部采集人</option>${uopt}</select>
       <button class="btn" onclick="wifiPage=1;renderWifi()">查询</button>
-      ${hasP('records_export')?'<button class="btn btn-p" onclick="exportWifi()">导出当前筛选</button>':''}
+      ${hasP('records_import')?`<button class="btn" onclick="document.getElementById('wifiFile').click()">导入记录</button>
+      <button class="btn" onclick="downloadWifiTemplate()">下载模板</button>`:''}
+      ${hasP('records_export')?`<button class="btn btn-p" onclick="exportWifi()">导出当前筛选</button>
+      <button class="btn btn-p" onclick="exportWifiAll()">导出全部记录</button>`:''}
+      <input type="file" id="wifiFile" accept=".xlsx" style="display:none" onchange="importWifi(event)">
     </div>
     ${d?renderWifiTable(d.records||[],true):'<div class="empty">加载失败</div>'}
     ${d?pager(d.total||0,d.page||1,Math.ceil((d.total||0)/WIFI_SIZE),'wifi'):''}
@@ -318,6 +322,100 @@ function pager(total,page,pages,tag){
   for(let i=1;i<=Math.min(pages,7);i++) h+=`<i class="${i===page?'on':''}" onclick="${tag}Page=${i};render${tag[0].toUpperCase()+tag.slice(1)}()">${i}</i>`;
   h+=`<i onclick="${tag}Page=${Math.min(pages,page+1)};render${tag[0].toUpperCase()+tag.slice(1)}()">›</i></div>`;
   return h;
+}
+// 导出全部记录（一次性导出所有，不受筛选/分页影响）
+async function exportWifiAll(){
+  toast('正在获取全部记录…');
+  const d=await fetch('/api/wifi?page=1&page_size=100000').then(r=>r.json()).catch(()=>null);
+  if(!d||!d.records){toast('获取失败');return;}
+  await saveXlsx([['SSID','BSSID','信号(dBm)','信道','加密方式','频段','厂商','关联单位','纬度','经度','采集人','采集时间'],
+    ...d.records.map(r=>[r.ssid,r.bssid,r.signal,r.channel,r.encrypt_type,r.band,r.vendor,r.unit_name,
+      r.latitude,r.longitude,r.created_by,r.collect_time])],
+    'WiFi记录','WiFi记录_全部_'+today());
+}
+// 下载导入模板
+function downloadWifiTemplate(){
+  const ws=XLSX.utils.aoa_to_sheet([['SSID','BSSID','信号(dBm)','信道','加密方式','频段','厂商','关联单位','纬度','经度']]);
+  ws['!cols']=[{wch:22},{wch:20},{wch:10},{wch:8},{wch:12},{wch:8},{wch:12},{wch:22},{wch:12},{wch:12}];
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'WiFi导入模板');
+  XLSX.writeFile(wb,'WiFi导入模板.xlsx'); toast('模板已下载');
+}
+function downloadUnitTemplate(){
+  const ws=XLSX.utils.aoa_to_sheet([['单位名称','统一社会信用代码','地址','纬度','经度','区县代码','区县名称','镇街代码','镇街名称','村社代码','村社名称']]);
+  ws['!cols']=[{wch:24},{wch:22},{wch:30},{wch:12},{wch:12},{wch:12},{wch:12},{wch:14},{wch:12},{wch:14},{wch:14}];
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'单位导入模板');
+  XLSX.writeFile(wb,'单位导入模板.xlsx'); toast('模板已下载');
+}
+// 导入 WiFi 记录
+async function importWifi(e){
+  const file=e.target.files[0]; e.target.value=''; if(!file)return;
+  const reader=new FileReader();
+  reader.onload=async function(ev){
+    try{
+      const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});
+      const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1});
+      if(rows.length<2){toast('文件无数据');return;}
+      // 批量提交（服务端支持数组，一次请求完成）
+      const recs=[];
+      for(let i=1;i<rows.length;i++){
+        const c=rows[i]; if(!c||c.length<2)continue;
+        const bssid=String(c[1]||'').trim().toUpperCase(); if(!bssid)continue;
+        recs.push({ssid:String(c[0]||'').trim(), bssid:bssid,
+          signal:parseInt(c[2])||0, channel:parseInt(c[3])||0,
+          encrypt_type:String(c[4]||'').trim()||'未知', band:String(c[5]||'').trim()||'2.4G',
+          vendor:String(c[6]||'').trim()||'未知', unit_name:String(c[7]||'').trim(),
+          latitude:c[8]?parseFloat(c[8]):null, longitude:c[9]?parseFloat(c[9]):null});
+      }
+      if(!recs.length){toast('未解析到有效数据');return;}
+      const r=await fetch('/api/wifi',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(recs)}).then(x=>x.json()).catch(()=>null);
+      toast(`导入完成：成功 ${r?r.ok:0} 条${(r&&r.skip)?('，跳过重复/异常 '+r.skip+' 条'):''}`);
+      renderWifi();
+    }catch(err){toast('解析失败: '+err.message);}
+  };
+  reader.readAsArrayBuffer(file);
+}
+// 导入单位
+async function importUnits(e){
+  const file=e.target.files[0]; e.target.value=''; if(!file)return;
+  const reader=new FileReader();
+  reader.onload=async function(ev){
+    try{
+      const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});
+      const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1});
+      if(rows.length<2){toast('文件无数据');return;}
+      // 批量提交（一次请求）
+      const list=[];
+      for(let i=1;i<rows.length;i++){
+        const c=rows[i]; if(!c||c.length<1)continue;
+        const name=String(c[0]||'').trim(); if(!name)continue;
+        list.push({unit_name:name, credit_code:String(c[1]||'').trim(), address:String(c[2]||'').trim(),
+          latitude:c[3]?parseFloat(c[3]):null, longitude:c[4]?parseFloat(c[4]):null,
+          district_code:String(c[5]||'').trim()||'330109', district_name:String(c[6]||'').trim()||'萧山区',
+          town_code:String(c[7]||'').trim()||'330109108', town_name:String(c[8]||'').trim()||'衙前镇',
+          village_code:String(c[9]||'').trim(), village_name:String(c[10]||'').trim(),
+          wifi_status:'unbound'});
+      }
+      if(!list.length){toast('未解析到有效数据');return;}
+      const r=await fetch('/api/units/batch',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({units:list})}).then(x=>x.json()).catch(()=>null);
+      toast(`导入完成：成功 ${r?r.ok:0} 家${(r&&r.skip)?('，跳过重复/异常 '+r.skip+' 家'):''}`);
+      renderUnits();
+    }catch(err){toast('解析失败: '+err.message);}
+  };
+  reader.readAsArrayBuffer(file);
+}
+// 导出全部单位
+async function exportUnits(){
+  toast('正在获取全部单位…');
+  const d=await fetch('/api/units?page=1&page_size=100000').then(r=>r.json()).catch(()=>null);
+  if(!d||!d.records){toast('获取失败');return;}
+  await saveXlsx([['单位名称','统一社会信用代码','地址','纬度','经度','区县代码','区县名称','镇街代码','镇街名称','村社代码','村社名称','关联WiFi','绑定状态'],
+    ...d.records.map(u=>[u.unit_name,u.credit_code,u.address,u.latitude,u.longitude,
+      u.district_code,u.district_name,u.town_code,u.town_name,u.village_code,u.village_name,
+      u.wifi_count||0,
+      u.wifi_status==='none'?'无WiFi':((u.wifi_count||0)>0?'已绑定':'未绑定')])],
+    '单位列表','单位列表_全部_'+today());
 }
 async function delWifi(bssid){
   if(!confirm('确定删除该 WiFi 记录？此操作不可恢复。'))return;
@@ -341,13 +439,35 @@ async function exportWifi(){
     'WiFi记录','WiFi记录_'+today());
 }
 function today(){return new Date().toLocaleDateString('zh-CN').replace(/\//g,'-');}
-function saveXlsx(data,sheet,filename){
+// 导出：优先弹出"选择保存位置"（Chrome/Edge 支持），不支持则回退浏览器默认下载
+async function saveXlsx(data,sheet,filename,silent){
   const ws=XLSX.utils.aoa_to_sheet(data);
   ws['!cols']=data[0].map(()=>({wch:17}));
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,sheet);
-  XLSX.writeFile(wb,filename+'.xlsx');
-  toast('已导出 '+Math.max(0,data.length-1)+' 条');
+  const name=filename+'.xlsx';
+  const n=Math.max(0,data.length-1);
+  try{
+    if(window.showSaveFilePicker){
+      const buf=XLSX.write(wb,{bookType:'xlsx',type:'array'});
+      const handle=await window.showSaveFilePicker({
+        suggestedName:name,
+        types:[{description:'Excel 工作簿',
+          accept:{'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':['.xlsx']}}]
+      });
+      const w=await handle.createWritable();
+      await w.write(buf);
+      await w.close();
+      toast('已保存到：'+handle.name+'（'+n+' 条）');
+      return true;
+    }
+  }catch(e){
+    if(e&&e.name==='AbortError'){toast('已取消导出');return false;}
+    console.warn('选择路径失败，回退默认下载',e);
+  }
+  XLSX.writeFile(wb,name);
+  if(!silent) toast('已导出 '+n+' 条');
+  return true;
 }
 
 /* ═══ ③ 单位维护 ═══ */
@@ -372,7 +492,10 @@ async function renderUnits(){
         <option value="unbound" ${wstat==='unbound'?'selected':''}>未绑定</option>
         <option value="none" ${wstat==='none'?'selected':''}>无 WiFi</option></select>
       <button class="btn" onclick="unitPage=1;renderUnits()">查询</button>
-      ${hasP('units_create')?'<button class="btn btn-p" onclick="editUnit(null)">+ 新增单位</button>':''}
+      ${hasP('units_import')?`<button class="btn" onclick="document.getElementById('unitFile').click()">导入单位</button>
+      <button class="btn" onclick="downloadUnitTemplate()">下载模板</button>`:''}
+      <button class="btn btn-p" onclick="exportUnits()">导出全部单位</button>
+      <input type="file" id="unitFile" accept=".xlsx" style="display:none" onchange="importUnits(event)">
     </div>
     ${rows.length?`<table><tr><th>单位名称</th><th>统一社会信用代码</th><th>所属镇街</th><th>地址</th><th>关联WiFi</th><th>绑定状态</th><th>经纬度</th><th>操作</th></tr>
     ${rows.map(u=>`<tr>
