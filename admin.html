@@ -711,7 +711,9 @@ function userRow(u,cntMap,roleMap){
     <td>${esc(u.username)}</td><td>${esc(u.display_name||'')}</td>
     <td><span class="tg ${rm[1]}">${rm[0]}</span></td>
     <td>${esc(u.dept_name||'—')}</td><td>${cntMap[u.username]||0}</td>
-    <td>${hasP('users_manage')?`<span class="lnk" onclick="openPerms('${esc(u.username)}')">权限</span>
+    <td>${hasP('users_manage')?`<span class="lnk" onclick="editUser('${esc(u.username)}')">修改</span>
+      <span class="lnk" onclick="openPerms('${esc(u.username)}')">权限</span>
+      <span class="lnk" onclick="openPwd('${esc(u.username)}')">密码</span>
       ${u.username!=='admin'?`<span class="lnk d" onclick="delUser('${esc(u.username)}')">删除</span>`:''}`:''}</td></tr>`;
 }
 function filterUsers(){
@@ -747,29 +749,92 @@ async function togglePerm(el,username,key){
   const u=curUsers.find(x=>x.username===username); if(u){u.perms=u.perms||{};u.perms[key]=on;}
   toast('已更新');
 }
-function editUser(u){
-  document.getElementById('mbox').innerHTML=`<div class="mttl">新增用户</div>
-    <div class="frow"><label>账号</label><input id="nuName"></div>
-    <div class="frow"><label>姓名</label><input id="nuDisp"></div>
-    <div class="frow"><label>密码</label><input id="nuPwd" type="password" placeholder="至少4位"></div>
-    <div class="frow"><label>角色</label><select id="nuRole">
-      ${ME.role==='admin'?'<option value="operator">操作员</option><option value="dept_admin">部门管理员</option>':'<option value="operator">操作员</option>'}
-    </select></div>
-    <div class="note">部门管理员只能创建<b>操作员</b>，且自动归属本部门。</div>
+let _depts=[];
+async function loadDepts(){
+  try{ const d=await fetch('/api/departments').then(r=>r.json()); _depts=d.departments||d||[]; }
+  catch(e){ _depts=[]; }
+}
+// 编辑用户：editUser(null)=新增；editUser('账号')=修改
+async function editUser(username){
+  const isNew=!username;
+  const u=isNew?{}:(curUsers.find(x=>x.username===username)||{});
+  await loadDepts();
+  const isAdmin=(ME.role==='admin');
+  const deptOpts=_depts.map(d=>`<option value="${d.id}" ${u.dept_id==d.id?'selected':''}>${esc(d.dept_name)}</option>`).join('');
+  const roleOpts=isAdmin
+    ? `<option value="operator" ${u.role==='operator'?'selected':''}>操作员</option>
+       <option value="dept_admin" ${u.role==='dept_admin'?'selected':''}>部门管理员</option>
+       <option value="admin" ${u.role==='admin'?'selected':''}>超级管理员</option>`
+    : `<option value="operator">操作员</option>`;
+  const deptSel=isAdmin?deptOpts:`<option value="${ME.dept_id}">${esc(ME.dept_name)}</option>`;
+  document.getElementById('mbox').innerHTML=`
+    <div class="mttl">${isNew?'新增用户':'修改用户'}</div>
+    <div class="frow"><label>账号</label><input id="euName" value="${esc(u.username||'')}" ${isNew?'':'readonly style="background:#f5f5f5;color:#888"'} placeholder="登录账号"></div>
+    <div class="frow"><label>姓名</label><input id="euDisp" value="${esc(u.display_name||'')}" placeholder="显示名称"></div>
+    <div class="frow"><label>角色</label><select id="euRole">${roleOpts}</select></div>
+    <div class="frow"><label>所属部门</label><select id="euDept">${deptSel}</select></div>
+    <div class="frow"><label>${isNew?'初始密码':'重设密码'}</label><input id="euPwd" type="password" placeholder="${isNew?'至少4位':'留空则不修改密码'}" autocomplete="new-password"></div>
+    <div class="note">${isNew?'创建后可在「修改」中重设密码。':'修改即时生效。密码留空则保持不变。'}
+    ${isAdmin?'':'<br>部门管理员只能设为<b>操作员</b>，且归属本部门。'}</div>
     <div class="mfoot"><button class="btn" onclick="closeM()">取消</button>
-    <button class="btn btn-p" onclick="saveUser()">创建</button></div>`;
+    <button class="btn btn-p" onclick="saveUser(${isNew?'null':("'"+esc(username)+"'")})">保存</button></div>`;
   document.getElementById('mask').classList.add('on');
 }
-async function saveUser(){
-  const p={username:document.getElementById('nuName').value.trim(),
-    display_name:document.getElementById('nuDisp').value.trim(),
-    password:document.getElementById('nuPwd').value.trim(),
-    role:document.getElementById('nuRole').value};
-  if(!p.username||!p.password){toast('账号和密码必填');return;}
-  const r=await fetch('/api/users',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify(p)}).then(x=>x.json()).catch(()=>null);
-  if(r&&r.success){toast('已创建');closeM();renderAdmin();}
-  else toast(r?(r.error||'创建失败'):'创建失败');
+async function saveUser(username){
+  const isNew=!username;
+  const name=document.getElementById('euName').value.trim();
+  const disp=document.getElementById('euDisp').value.trim();
+  const role=document.getElementById('euRole').value;
+  const dept=document.getElementById('euDept').value;
+  const pwd=(document.getElementById('euPwd').value||'').trim();
+  if(!name){toast('请输入账号');return;}
+  if(isNew&&(!pwd||pwd.length<4)){toast('初始密码至少4位');return;}
+  if(!isNew&&pwd&&pwd.length<4){toast('新密码至少4位');return;}
+  const deptId=dept?parseInt(dept):null;
+  let r;
+  if(isNew){
+    r=await fetch('/api/users',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({username:name,display_name:disp,password:pwd,role:role,dept_id:deptId})})
+      .then(x=>x.json()).catch(()=>null);
+  }else{
+    r=await fetch('/api/users/'+encodeURIComponent(username),{method:'PUT',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({display_name:disp,role:role,dept_id:deptId})})
+      .then(x=>x.json()).catch(()=>null);
+  }
+  if(!(r&&r.success)){toast(r?(r.error||'保存失败'):'保存失败');return;}
+  // 修改模式下若填写了密码，一并提交改密码
+  if(!isNew&&pwd){
+    const rp=await fetch('/api/users/'+encodeURIComponent(username)+'/password',{method:'PUT',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({new_password:pwd})})
+      .then(x=>x.json()).catch(()=>null);
+    toast(rp&&rp.success?'已保存（含密码修改）':'信息已保存，但密码修改失败');
+  }else{
+    toast(isNew?'已创建':'已保存');
+  }
+  closeM();renderAdmin();
+}
+// 修改密码（独立弹窗）
+function openPwd(username){
+  document.getElementById('mbox').innerHTML=`
+    <div class="mttl">修改密码 · ${esc(username)}</div>
+    <div class="frow"><label>新密码</label><input id="pwNew" type="password" placeholder="至少4位" autocomplete="new-password"></div>
+    <div class="frow"><label>确认新密码</label><input id="pwNew2" type="password" placeholder="再输入一次" autocomplete="new-password"></div>
+    <div class="note">管理员修改他人密码无需原密码。修改后该账号密码有效期重新计算（90天后提醒更换）。</div>
+    <div class="mfoot"><button class="btn" onclick="closeM()">取消</button>
+    <button class="btn btn-p" onclick="savePwd('${esc(username)}')">确认修改</button></div>`;
+  document.getElementById('mask').classList.add('on');
+}
+async function savePwd(username){
+  const p1=(document.getElementById('pwNew').value||'').trim();
+  const p2=(document.getElementById('pwNew2').value||'').trim();
+  if(!p1||p1.length<4){toast('新密码至少4位');return;}
+  if(p1!==p2){toast('两次输入的密码不一致');return;}
+  const r=await fetch('/api/users/'+encodeURIComponent(username)+'/password',{method:'PUT',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({new_password:p1})})
+    .then(x=>x.json()).catch(()=>null);
+  if(r&&r.success){toast('密码已修改');closeM();}
+  else toast(r?(r.error||'修改失败'):'修改失败');
 }
 async function delUser(username){
   if(!confirm(`确定删除用户「${username}」？`))return;
