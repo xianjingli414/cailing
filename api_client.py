@@ -304,28 +304,31 @@ def get_all_units_server():
     return []
 
 
-def add_unit_server(name, code, addr):
-    """在服务器上新增单位"""
+def add_unit_server(name, code, addr, payload=None):
+    """在服务器上新增单位（payload 完整透传：坐标/行政区划/绑定状态等）"""
     if not _auth_token:
         raise RuntimeError("未登录")
-    status, _ = _request("POST", "/api/units", {"unit_name": name, "credit_code": code, "address": addr})
+    body = payload if isinstance(payload, dict) else {"unit_name": name, "credit_code": code, "address": addr}
+    status, _ = _request("POST", "/api/units", body)
     return status == 200
 
 
-def update_unit_server(uid, name, code, addr):
-    """在服务器上修改单位"""
+def update_unit_server(uid, name, code, addr, payload=None):
+    """在服务器上修改单位（payload 完整透传，服务端增量更新只改携带字段）"""
     if not _auth_token:
         raise RuntimeError("未登录")
-    status, _ = _request("PUT", f"/api/units/{uid}", {"unit_name": name, "credit_code": code, "address": addr})
+    body = payload if isinstance(payload, dict) else {"unit_name": name, "credit_code": code, "address": addr}
+    status, _ = _request("PUT", f"/api/units/{uid}", body)
     return status == 200
 
 
-def update_unit_by_name_server(old_name, name, code, addr):
-    """按单位名称在服务器上修改单位"""
+def update_unit_by_name_server(old_name, name, code, addr, payload=None):
+    """按单位名称在服务器上修改单位（payload 完整透传）"""
     if not _auth_token:
         raise RuntimeError("未登录")
     import urllib.parse
-    status, _ = _request("PUT", f"/api/units/name/{urllib.parse.quote(old_name, safe='')}", {"unit_name": name, "credit_code": code, "address": addr})
+    body = payload if isinstance(payload, dict) else {"unit_name": name, "credit_code": code, "address": addr}
+    status, _ = _request("PUT", f"/api/units/name/{urllib.parse.quote(old_name, safe='')}", body)
     return status == 200
 
 

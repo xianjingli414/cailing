@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-采灵 v18.2 — Flask + WebView Bootstrap 方案（WifiBridge原生扫描版）
+采灵 v18.3 — Flask + WebView Bootstrap 方案（WifiBridge原生扫描版）
 
 核心改动：WiFi扫描通过Java原生WifiBridge（addJavascriptInterface）完成，
 不再依赖Python/jnius调用Android API（v10-v11均因此失败）。
@@ -424,7 +424,8 @@ def api_units_add():
         ok = api_client.add_unit_server(
             data.get('unit_name', ''),
             data.get('credit_code', ''),
-            data.get('address', '')
+            data.get('address', ''),
+            payload=data
         )
         return jsonify({"success": ok})
     except RuntimeError as e:
@@ -445,7 +446,8 @@ def api_units_update(uid):
             uid,
             data.get('unit_name', ''),
             data.get('credit_code', ''),
-            data.get('address', '')
+            data.get('address', ''),
+            payload=data
         )
         return jsonify({"success": ok})
     except RuntimeError as e:
@@ -466,7 +468,8 @@ def api_units_update_by_name(unit_name):
             unit_name,
             data.get('unit_name', ''),
             data.get('credit_code', ''),
-            data.get('address', '')
+            data.get('address', ''),
+            payload=data
         )
         return jsonify({"success": ok})
     except RuntimeError as e:
