@@ -32,6 +32,14 @@ jobs:
           zlib1g-dev libncurses-dev \
           cmake libffi-dev libssl-dev
 
+    # 显式固定 JDK 17：2026-11 起 runner 预装默认 Java 升到 25，
+    # Gradle 8.14.3 编译 build.gradle 报 "Unsupported class file major version 69"
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
+
     - name: Clean cache
       run: |
         rm -rf ~/.buildozer ~/.android
